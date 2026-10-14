@@ -9,9 +9,12 @@ This script implements the protocol observed in the captured USB traces:
 - Data blocks (CMD=0x03) use param1 as the chunk index and param2 as the
   payload length (usually 1024 bytes).
 
-The tool can accept a raw binary image (already ready to send) or a RT*.BTF
-file. For BTF files we implement the FwCrypt decode (same logic as
-fwcrypt_io.py) to obtain the plaintext firmware before chunking.
+The tool accepts a RT*.BTF file or a plain firmware image. The radio expects
+fwcrypt-encrypted data on the wire and decrypts it itself: the OEM updater
+sends the BTF bytes unchanged, and decrypting the captured update stream in
+firmware/RE/firmware dumps/fullflash_reconstructed.bin gives readable strings.
+So a .btf file is sent as is, and any other file is treated as a plain image
+and encrypted first (fwcrypt is its own inverse).
 
 Example usage:
     python radtel_flash.py --port /dev/ttyACM0 firmware.bin
@@ -51,7 +54,7 @@ try:
 except ImportError:  # pragma: no cover - runtime dependency only
     serial = None  # Allow import so argparse help works.
 
-# --- FwCrypt decode (mirrors firmware/scripts/fwcrypt_io.py) -----------------
+# --- FwCrypt (mirrors firmware/scripts/fwcrypt_io.py) -----------------------
 
 BLOCK_SKIP_SIZE = 0x800
 BASE_KEY_OFFSET = 0x400
@@ -94,12 +97,13 @@ def fwcrypt_transform(fw_bytes: bytearray, key: bytes) -> bytearray:
 
 
 def load_firmware(image_path: Path, *, treat_as_raw: bool = False) -> bytes:
+    """Return the bytes to send: a .btf as is, a plain image encrypted."""
     data = image_path.read_bytes()
-    if treat_as_raw:
+    if treat_as_raw or image_path.suffix.lower() == ".btf":
         return data
     key = build_fwcrypt_key(data)
-    decoded = fwcrypt_transform(bytearray(data), key)
-    return bytes(decoded)
+    encrypted = fwcrypt_transform(bytearray(data), key)
+    return bytes(encrypted)
 
 # --- CRC16-XMODEM -----------------------------------------------------------
 
@@ -263,12 +267,12 @@ def encode_total_package_field(total_chunks: int) -> bytes:
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Flash RT-950 firmware over USB CDC")
-    parser.add_argument("image", type=Path, help="Path to .btf or raw firmware image")
+    parser.add_argument("image", type=Path, help="Path to a .btf file (sent as is) or a plain .bin image (encrypted before sending)")
     parser.add_argument("--port", required=True, help="Serial port (e.g. COM5, /dev/ttyACM0)")
     parser.add_argument("--baud", type=int, default=115200, help="UART baud rate (default: 115200)")
     parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE, help="Payload bytes per CMD=0x03 packet")
     parser.add_argument("--skip-handshake", action="store_true", help="Skip the PROGRAM/UPDATE ASCII handshake")
-    parser.add_argument("--raw", action="store_true", help="Treat the input file as a ready-to-send binary (skip fwcrypt decode)")
+    parser.add_argument("--raw", action="store_true", help="Send the input file unchanged, whatever its extension")
     parser.add_argument("--timeout", type=float, default=2.0, help="Serial read/write timeout in seconds")
     parser.add_argument("--resume", type=int, default=0, help="Start chunk index (for manual resume)")
 
