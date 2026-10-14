@@ -11,6 +11,10 @@
  * Both BK4829s get the OEM register setup (receive path only, no TX), and a
  * few registers are read back and shown. Matching values prove the 3-wire bus
  * works in both directions.
+ *
+ * Then the radio receives FM on RX_DEFAULT_FREQ. The encoder tunes in
+ * 12.5 kHz steps, the screen shows the RSSI, and the audio opens while the
+ * RSSI is above SQ_OPEN_DBM. Nothing here can transmit.
  */
 #include "clock.h"
 #include "backlight.h"
@@ -18,6 +22,7 @@
 #include "input.h"
 #include "log.h"
 #include "bk4829.h"
+#include "rf.h"
 
 /*
  * The OEM bootloader starts the application and may leave interrupts enabled.
@@ -97,7 +102,10 @@ static void draw_inputs(const input_raw_t *in, int32_t enc_count)
 
     draw_field(136, "key ", in->key == INPUT_KEY_NONE ? "  --" : fmt_int(buf, in->key, 4));
     draw_field(156, "ptt ", in->ptt ? "DOWN" : "  up");
-    draw_field(176, "ext ", in->ptt_ext ? "DOWN" : "  up");
+    buf[0] = (in->aux & 2) ? '1' : '0';
+    buf[1] = (in->aux & 1) ? '1' : '0';
+    buf[2] = '\0';
+    draw_field(176, "PE0 PC15 ", buf);
     draw_field(196, "enc ", fmt_int(buf, enc_count, 6));
     buf[0] = (in->enc_ab & 2) ? '1' : '0';
     buf[1] = (in->enc_ab & 1) ? '1' : '0';
@@ -145,12 +153,57 @@ static void bk_check(bk_chip_t chip, uint16_t y)
     lcd_draw_string(8, y, line, ok == sizeof(bk_check_regs) ? LCD_GREEN : LCD_RED, LCD_BLACK);
 }
 
+/* 10 Hz units: 145.500 MHz, 12.5 kHz steps */
+#define RX_DEFAULT_FREQ 14550000U
+#define RX_STEP         1250U
+#define RX_MIN_FREQ     1800000U   /* 18 MHz */
+#define RX_MAX_FREQ     52000000U  /* 520 MHz */
+#define SQ_OPEN_DBM     (-110)
+#define SQ_CLOSE_DBM    (-115)
+
+static void draw_freq(uint32_t freq)
+{
+    char line[20];
+    uint32_t mhz = freq / 100000U;
+    uint32_t frac = (freq % 100000U) / 10U; /* 100 Hz digits */
+
+    line[0] = 'r';
+    line[1] = 'x';
+    line[2] = ' ';
+    line[3] = (char)(mhz >= 100 ? '0' + mhz / 100 : ' ');
+    line[4] = (char)(mhz >= 10 ? '0' + (mhz / 10) % 10 : ' ');
+    line[5] = (char)('0' + mhz % 10);
+    line[6] = '.';
+    for (int i = 3; i >= 0; i--) {
+        line[7 + i] = (char)('0' + frac % 10);
+        frac /= 10;
+    }
+    line[11] = ' ';
+    line[12] = 'b';
+    line[13] = 'k';
+    line[14] = (char)('0' + rf_chip(freq));
+    line[15] = '\0';
+    lcd_draw_string(8, 284, line, LCD_WHITE, LCD_BLACK);
+}
+
+static void draw_rssi(int16_t dbm, bool open)
+{
+    char buf[12];
+    uint16_t x = lcd_draw_string(8, 302, "rssi ", LCD_GREY, LCD_BLACK);
+
+    x = lcd_draw_string(x, 302, fmt_int(buf, dbm, 4), LCD_WHITE, LCD_BLACK);
+    lcd_draw_string(x, 302, open ? " dBm OPEN" : " dBm    ", open ? LCD_GREEN : LCD_WHITE, LCD_BLACK);
+}
+
 int main(void)
 {
     uint32_t next = 0;
     uint32_t next_input = 0;
     uint32_t seconds = 0;
     int32_t enc_count = 0;
+    uint32_t freq = RX_DEFAULT_FREQ;
+    bool sq_open = false;
+    bool retune = true;
     uint8_t last_key = INPUT_KEY_NONE;
     char buf[12];
 
@@ -170,14 +223,45 @@ int main(void)
     bk_check(BK_CHIP_0, 248);
     bk_check(BK_CHIP_1, 268);
 
+    rf_init();
+
     for (;;) {
-        enc_count += input_encoder_poll();
+        int32_t steps = input_encoder_poll();
+
+        if (steps) {
+            int64_t f = (int64_t)freq + (int64_t)steps * RX_STEP;
+            enc_count += steps;
+            if (f < RX_MIN_FREQ) {
+                f = RX_MIN_FREQ;
+            } else if (f > RX_MAX_FREQ) {
+                f = RX_MAX_FREQ;
+            }
+            freq = (uint32_t)f;
+            retune = true;
+        }
 
         if ((int32_t)(clock_millis() - next_input) >= 0) {
             input_raw_t in;
             next_input += 20;
             input_read(&in);
             draw_inputs(&in, enc_count);
+
+            if (retune) {
+                retune = false;
+                sq_open = false;
+                rf_rx_start(freq);
+                draw_freq(freq);
+                log_printf("rx %lu0 Hz on bk%u\n", (unsigned long)freq, rf_chip(freq));
+            }
+
+            int16_t dbm = bk4829_rssi_dbm(rf_chip(freq));
+            bool open = sq_open ? dbm > SQ_CLOSE_DBM : dbm >= SQ_OPEN_DBM;
+            if (open != sq_open) {
+                sq_open = open;
+                rf_audio(open);
+                log_printf("squelch %s at %d dBm\n", open ? "open" : "closed", dbm);
+            }
+            draw_rssi(dbm, sq_open);
             if (in.key != last_key) {
                 if (in.key != INPUT_KEY_NONE) {
                     log_printf("key %u\n", in.key);

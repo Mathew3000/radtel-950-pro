@@ -1,7 +1,7 @@
 # rt950os
 
 Open replacement firmware for the Radtel RT-950 Pro (AT32F403A). Right now it
-is a bring-up test image. It sets the clock to 240 MHz from the internal
+is a bring-up test image that can receive FM. It sets the clock to 240 MHz from the internal
 oscillator, blinks the LCD backlight (PC12) at 1 Hz, and draws a test screen
 on the TFT: text, colour bars, corner markers (red top left, green bottom
 right) and a seconds counter.
@@ -12,14 +12,24 @@ read white, yellow, cyan, green, red, blue, black, grey from the red corner,
 and the counter advances once per second.
 
 Below that, the screen shows raw inputs for mapping on hardware: a key code
-for the key held down (see `src/drivers/input.h`), both PTT inputs, and an
-encoder counter with the raw A/B levels. Writing down the code for each
-labelled key gives us the keypad map.
+for the key held down (see `src/drivers/input.h`), the PTT (PE3), two inputs
+of unknown role (PE0, PC15), and an encoder counter with the raw A/B levels.
+Writing down the code for each labelled key gives us the keypad map.
 
 It also brings up both BK4829 transceivers with the OEM register setup (RX
 path only, audio muted, TX never enabled) and reads four registers back. Each
 chip gets a line like `bk0 ok 4/4 37=9d1f`: green when all four match, red
-otherwise (`??` when none do). The RTT log lists every value read. Green on both proves the 3-wire bus (`src/drivers/bk4829.c`).
+otherwise (`??` when none do). The RTT log lists every value read. Green on
+both proves the 3-wire bus (`src/drivers/bk4829.c`).
+
+Finally it receives FM on 145.500 MHz. The encoder tunes in 12.5 kHz steps
+(18 to 520 MHz), the bottom lines show the frequency, which BK4829 is in use
+and the RSSI, and the speaker opens while the RSSI is above -110 dBm. The
+band split, register values and RF path pins come from the OEM firmware
+(`src/drivers/rf.c`, `src/board.h`). There is no calibration yet, so expect
+the RSSI to be off by a few dB. Nothing in this image can transmit: the TX
+path selects are held low and BK4829 register 0x30 only gets the idle and
+receive values.
 
 ## Build
 

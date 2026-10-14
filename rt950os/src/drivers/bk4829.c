@@ -17,8 +17,6 @@
  * access routines show it is this bus. This is the same 3-wire protocol as
  * the BK4819 in the Quansheng UV-K5.
  */
-#include <stdbool.h>
-
 #include "bk4829.h"
 #include "clock.h"
 
@@ -174,4 +172,55 @@ void bk4829_init(bk_chip_t chip)
      * settings; we keep the 0xB3FF written above.
      */
     bk4829_write(chip, 0x47, 0x6042);
+}
+
+void bk4829_sleep(bk_chip_t chip)
+{
+    bk4829_write(chip, 0x30, 0x0000);
+    bk4829_write(chip, 0x37, 0x1D00);
+}
+
+void bk4829_wake(bk_chip_t chip)
+{
+    bk4829_write(chip, 0x37, 0x9D1F);
+}
+
+/*
+ * Register 0x30 values from the OEM mode setter (0x0801ed10): 0 is idle and
+ * 0xBFF1 is receive (VCO, RX link, AF DAC, discriminator, PLL and RX DSP on;
+ * PA gain, mic ADC and TX DSP off). The OEM writes 0x0200 first on the way
+ * into receive. These are the only 0x30 values rt950os writes.
+ */
+#define REG30_IDLE     0x0000
+#define REG30_RX_PREP  0x0200
+#define REG30_RX       0xBFF1
+
+void bk4829_rx_on(bk_chip_t chip, uint32_t freq)
+{
+    bk4829_write(chip, 0x37, 0x9F1F);
+    bk4829_write(chip, 0x30, REG30_IDLE);
+
+    /* OEM tuning routine (0x0801e5cc): frequency in 10 Hz units, then the IF filter */
+    bk4829_write(chip, 0x38, (uint16_t)(freq & 0xFFFF));
+    bk4829_write(chip, 0x39, (uint16_t)(freq >> 16));
+    bk4829_write(chip, 0x43, 0x3028);
+
+    /* 0x0801f060 without scrambler: clear 0x31 bit 1 and set 0x40 */
+    bk4829_write(chip, 0x31, (uint16_t)(bk4829_read(chip, 0x31) & ~0x0002U));
+    bk4829_write(chip, 0x40, (uint16_t)((bk4829_read(chip, 0x40) & 0xF000) | 0x04E0));
+
+    bk4829_write(chip, 0x30, REG30_RX_PREP);
+    bk4829_write(chip, 0x30, REG30_RX);
+    bk4829_af(chip, false);
+}
+
+void bk4829_af(bk_chip_t chip, bool on)
+{
+    /* AF mode table at 0x0802c254: 0x0000 mute, 0x0100 FM; ORed with 0x6042 */
+    bk4829_write(chip, 0x47, on ? 0x6142 : 0x6042);
+}
+
+int16_t bk4829_rssi_dbm(bk_chip_t chip)
+{
+    return (int16_t)((bk4829_read(chip, 0x67) & 0x01FF) / 2 - 160);
 }

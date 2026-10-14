@@ -64,7 +64,10 @@ void input_init(void)
     pin_input(KEY0_PORT, KEY0_PIN, GPIO_PULL_UP);
     /* PA12 is also USB D+, so no pull-up that could upset the USB bus */
     pin_input(KEY1_PORT, KEY1_PIN, GPIO_PULL_NONE);
-    pin_input(BOARD_PTT_PORT, BOARD_PTT_PIN | BOARD_PTT_EXT_PIN, GPIO_PULL_UP);
+    pin_input(BOARD_PTT_PORT, BOARD_PTT_PIN, GPIO_PULL_UP);
+    /* Unknown inputs: no pull, so we read whatever the board drives */
+    pin_input(BOARD_AUX0_PORT, BOARD_AUX0_PIN, GPIO_PULL_NONE);
+    pin_input(BOARD_AUX1_PORT, BOARD_AUX1_PIN, GPIO_PULL_NONE);
     pin_input(BOARD_ENC_PORT, BOARD_ENC_A_PIN | BOARD_ENC_B_PIN, GPIO_PULL_UP);
 }
 
@@ -117,9 +120,9 @@ void input_read(input_raw_t *out)
         out->key = scan_matrix();
     }
 
-    uint32_t ptt = BOARD_PTT_PORT->idt;
-    out->ptt = !(ptt & BOARD_PTT_PIN);
-    out->ptt_ext = !(ptt & BOARD_PTT_EXT_PIN);
+    out->ptt = !(BOARD_PTT_PORT->idt & BOARD_PTT_PIN);
+    out->aux = (uint8_t)(((BOARD_AUX0_PORT->idt & BOARD_AUX0_PIN) ? 2 : 0) |
+                         ((BOARD_AUX1_PORT->idt & BOARD_AUX1_PIN) ? 1 : 0));
 
     uint32_t enc = BOARD_ENC_PORT->idt;
     out->enc_ab = (uint8_t)(((enc & BOARD_ENC_A_PIN) ? 2 : 0) | ((enc & BOARD_ENC_B_PIN) ? 1 : 0));

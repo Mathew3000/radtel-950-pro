@@ -12,6 +12,7 @@ vector with just enough peripheral behaviour to get through start-up:
   written and answers reads on PE11. Unicorn runs the memory hooks of
   conditional stores in an IT block even when the condition fails, so the
   driver changes each pin with one unconditional store.
+- GPIOB, GPIOC, GPIOE: output levels are tracked from SCR/CLR writes.
 Everything else is plain memory.
 
 It then checks:
@@ -19,8 +20,11 @@ It then checks:
 - the bytes clocked out on the TFT bus (GPIOD, latched on WR rising) match
   the OEM init sequence;
 - a full-screen fill went out, so the test screen was drawn;
-- both BK4829s received the OEM init, register 0x30 (TX control) was never
-  written, and the read-back logged over RTT matches what was written.
+- both BK4829s received the OEM init, register 0x30 only ever got the idle
+  and receive values, and the read-back logged over RTT matches;
+- the radio ends up receiving 145.5 MHz on the PE8 chip with the other chip
+  asleep and the VHF RX path (PB0) selected;
+- the TX path selects (PB1, PE7, PE14) were never set.
 
 Usage: emu_smoke.py build/rt950os.elf build/rt950os.bin
 """
@@ -35,12 +39,18 @@ from unicorn.arm_const import UC_ARM_REG_SP, UC_ARM_REG_PC, UC_CPU_ARM_CORTEX_M4
 FLASH, RAM, PERIPH, PPB = 0x08000000, 0x20000000, 0x40000000, 0xE0000000
 APP_BASE = 0x08002C00
 CRM = 0x40021000
+GPIOB = 0x40010C00
+GPIOC = 0x40011000
 GPIOD = 0x40011400
 GPIOE = 0x40011800
 GPIO_IDT, GPIO_SCR, GPIO_CLR = 0x08, 0x10, 0x14
 
 BK_SCK, BK_SDA = 1 << 10, 1 << 11
 BK_CS = {0: 1 << 8, 1: 1 << 15}
+# RF path selects (src/board.h): TX ones must never go high
+TX_PINS = {GPIOB: 1 << 1, GPIOE: (1 << 7) | (1 << 14)}
+RX_VHF = (GPIOB, 1 << 0)
+REG30_ALLOWED = {0x0000, 0x0200, 0xBFF1}
 
 
 class BkBus:
@@ -120,6 +130,8 @@ def main():
     gpiod_odt = [0xFFFF]
     lcd = []
     bk = BkBus()
+    odt = {GPIOB: 0, GPIOC: 0, GPIOE: 0}
+    ever_set = {GPIOB: 0, GPIOC: 0, GPIOE: 0}
 
     def on_read(uc, access, addr, size, value, data):
         if addr == CRM:
@@ -135,6 +147,14 @@ def main():
             uc.mem_write(GPIOE + GPIO_IDT, struct.pack("<I", BK_SDA if bk.idt_bit else 0))
 
     def on_write(uc, access, addr, size, value, data):
+        port = addr & ~0x3FF
+        if port in odt and addr - port in (GPIO_SCR, GPIO_CLR):
+            if addr - port == GPIO_SCR:
+                set_bits = value & 0xFFFF
+                odt[port] = (odt[port] | set_bits) & ~((value >> 16) & 0xFFFF)
+                ever_set[port] |= set_bits
+            else:
+                odt[port] &= ~(value & 0xFFFF)
         if addr in (GPIOE + GPIO_SCR, GPIOE + GPIO_CLR):
             old = bk.odt
             if addr == GPIOE + GPIO_SCR:
@@ -161,6 +181,8 @@ def main():
     uc.hook_add(UC_HOOK_MEM_READ, on_read, begin=GPIOE + GPIO_IDT, end=GPIOE + GPIO_IDT + 3)
     uc.hook_add(UC_HOOK_MEM_WRITE, on_write, begin=GPIOD, end=GPIOD + 0x20)
     uc.hook_add(UC_HOOK_MEM_WRITE, on_write, begin=GPIOE, end=GPIOE + 0x20)
+    uc.hook_add(UC_HOOK_MEM_WRITE, on_write, begin=GPIOB, end=GPIOB + 0x20)
+    uc.hook_add(UC_HOOK_MEM_WRITE, on_write, begin=GPIOC, end=GPIOC + 0x20)
 
     sp, reset = struct.unpack_from("<II", image, 0)
     uc.reg_write(UC_ARM_REG_SP, sp)
@@ -195,17 +217,35 @@ def main():
     if len(lcd) < 2 * 240 * 320:
         failures.append(f"only {len(lcd)} bytes on the TFT bus, the full-screen fill is missing")
 
+    init_vals = {0x37: 0x9D1F, 0x7B: 0x73DC, 0x1D: 0xE555, 0x3E: 0x94C6}
     for chip in (0, 1):
         writes = bk.writes[chip]
         print(f"BK{chip}: {len(writes)} register writes")
         if writes[:2] != [(0x00, 0x8000), (0x00, 0x0000)]:
             failures.append(f"BK{chip}: init does not start with the soft reset")
-        if bk.regs[chip].get(0x37) != 0x9D1F or bk.regs[chip].get(0x47) != 0x6042:
+        if any((reg, val) not in writes for reg, val in init_vals.items()) or (0x47, 0x6042) not in writes:
             failures.append(f"BK{chip}: OEM init values missing")
-        if any(reg == 0x30 for reg, _ in writes):
-            failures.append(f"BK{chip}: register 0x30 (TX control) was written")
+        bad30 = sorted({val for reg, val in writes if reg == 0x30} - REG30_ALLOWED)
+        if bad30:
+            failures.append(f"BK{chip}: register 0x30 written with non-RX values {[hex(v) for v in bad30]}")
         if f"bk{chip} reg 37 = 9d1f" not in log:
             failures.append(f"BK{chip}: read-back of 0x37 not 9d1f in the log")
+
+    # Receive on 145.5 MHz: chip 0 tuned and in RX, chip 1 asleep, VHF RX path on
+    r0, r1 = bk.regs[0], bk.regs[1]
+    tuned = r0.get(0x38, 0) | (r0.get(0x39, 0) << 16)
+    print(f"RX: bk0 at {tuned * 10} Hz, 0x30 = {r0.get(0x30, 0):04x}; bk1 0x37 = {r1.get(0x37, 0):04x}")
+    if tuned != 14550000 or r0.get(0x30) != 0xBFF1:
+        failures.append("BK0 not receiving on 145.5 MHz")
+    if r1.get(0x30) != 0x0000 or r1.get(0x37) != 0x1D00:
+        failures.append("BK1 not asleep while BK0 receives")
+    if not odt[RX_VHF[0]] & RX_VHF[1]:
+        failures.append("VHF RX path select (PB0) not set")
+    for port, mask in TX_PINS.items():
+        if ever_set[port] & mask:
+            failures.append(f"TX path select set on port {port:#x}: {ever_set[port] & mask:#06x}")
+    if "rx 145500000 Hz on bk0" not in log:
+        failures.append("RX start missing from the RTT log")
 
     if failures:
         for f in failures:

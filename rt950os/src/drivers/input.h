@@ -13,8 +13,8 @@
  */
 typedef struct {
     uint8_t key;
-    bool ptt;       /* PE13, active low (assumed) */
-    bool ptt_ext;   /* PE12, active low (assumed) */
+    bool ptt;       /* PE3, active low */
+    uint8_t aux;    /* raw levels: bit 1 = PE0, bit 0 = PC15 (roles unknown) */
     uint8_t enc_ab; /* bit 1 = PB4 (A), bit 0 = PB5 (B), raw levels */
 } input_raw_t;
 

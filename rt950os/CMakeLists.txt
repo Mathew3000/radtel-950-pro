@@ -46,6 +46,7 @@ add_executable(rt950os
     src/drivers/font8x16.c
     src/drivers/input.c
     src/drivers/bk4829.c
+    src/drivers/rf.c
 )
 target_include_directories(rt950os PRIVATE src src/hal src/drivers src/app)
 target_compile_options(rt950os PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wall -Wextra>)
@@ -55,7 +56,7 @@ set(LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/ld/rt950.ld)
 target_link_options(rt950os PRIVATE -T${LINKER_SCRIPT} -Wl,-Map=$<TARGET_FILE_DIR:rt950os>/rt950os.map)
 set_target_properties(rt950os PROPERTIES LINK_DEPENDS ${LINKER_SCRIPT})
 
-# rt950os.bin: plain image for SWD flashing at 0x08000000
+# rt950os.bin: plain image for SWD flashing at 0x08002C00
 # rt950os.btf: fwcrypt-encrypted image for the OEM USB updater or radtel_flash.py
 add_custom_command(TARGET rt950os POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:rt950os> rt950os.bin
