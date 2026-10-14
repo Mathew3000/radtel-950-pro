@@ -229,7 +229,7 @@ address,name,size,decompiled
 0x0800b4c0,FUN_0800b4c0,26,true
 0x0800b4e4,FUN_0800b4e4,20,true
 0x0800b4f8,FUN_0800b4f8,58,true
-0x0800b62c,RF_Set_Frequency_Synthesizer,236,true
+0x0800b62c,BK4829_SetCDCSSCodeWord,236,true
 0x0800b7a6,Delay,28,true
 0x0800b7c2,FUN_0800b7c2,14,true
 0x0800b7d0,FUN_0800b7d0,28,true

@@ -7259,11 +7259,11 @@ void FUN_08008734(void)
 {
   if (1 < DAT_20000b9c) {
     if ((~DAT_20000b98 & 0xa0000000) != 0) {
-      RF_Set_Frequency_Synthesizer(DAT_20000b98,DAT_20000b9c,0);
+      BK4829_SetCDCSSCodeWord(DAT_20000b98,DAT_20000b9c,0);
       return;
     }
     DAT_200000e0 = DAT_20000b98 & 0x7fffff;
-    RF_Set_Frequency_Synthesizer(DAT_20000b98,DAT_20000b9c,1);
+    BK4829_SetCDCSSCodeWord(DAT_20000b98,DAT_20000b9c,1);
     return;
   }
   if (DAT_20000b9c == 1) {
@@ -7297,11 +7297,11 @@ void FUN_08008784(void)
   }
   if (1 < DAT_20000ba8) {
     if ((~DAT_20000ba4 & 0xa0000000) != 0) {
-      RF_Set_Frequency_Synthesizer(DAT_20000ba4,DAT_20000ba8,0);
+      BK4829_SetCDCSSCodeWord(DAT_20000ba4,DAT_20000ba8,0);
       return;
     }
     DAT_200000e0 = DAT_20000ba4 & 0x7fffff;
-    RF_Set_Frequency_Synthesizer(DAT_20000ba4,DAT_20000ba8,1);
+    BK4829_SetCDCSSCodeWord(DAT_20000ba4,DAT_20000ba8,1);
     return;
   }
   Bluetooth_CommandSequencer(DAT_20000ba4,DAT_20000bad);
@@ -11030,13 +11030,14 @@ void FUN_0800b4f8(uint *param_1,uint *param_2)
 }
 
 
-// 0800b62c RF_Set_Frequency_Synthesizer
+// 0800b62c BK4829_SetCDCSSCodeWord
 
-/* Purpose: Sets the frequency of the RF synthesizer by writing to a peripheral's registers.
-   param_1: (uint) Frequency value. param_2: (int) Mode. param_3: (int) Flag. Notes: Writes to
-   registers 0x51, 0x07, 0x08 of an external peripheral. */
+/* Sets up DCS (CDCSS) on the BK4829, not the frequency: REG_51 = CDCSS enable/threshold, REG_07 =
+   0x0AD7 (CTC1 mode, 2775), then REG_08 twice with the low and high 12 bits of the 23-bit Golay
+   code word. Same sequence as BK4819_SetCDCSSCodeWord in the UV-K5 firmware. param_1: DCS code,
+   param_2: 3 selects 0x8000 instead of 0xA000 in REG_51, param_3: 0 = compute the code word. */
 
-void RF_Set_Frequency_Synthesizer(uint param_1,int param_2,int param_3)
+void BK4829_SetCDCSSCodeWord(uint param_1,int param_2,int param_3)
 
 {
   ushort uVar1;
@@ -24446,7 +24447,7 @@ void FUN_0801f388(void)
         }
       }
       else {
-        RF_Set_Frequency_Synthesizer(DAT_2000afe8,iVar1,1);
+        BK4829_SetCDCSSCodeWord(DAT_2000afe8,iVar1,1);
         Delay(200);
         iVar1 = FUN_0801c58c();
         if (iVar1 == 0) {
