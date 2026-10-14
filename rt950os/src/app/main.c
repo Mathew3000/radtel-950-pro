@@ -12,6 +12,7 @@
 #include "backlight.h"
 #include "lcd.h"
 #include "input.h"
+#include "log.h"
 
 /*
  * The OEM bootloader passes a flag in r0 when it starts the application, so
@@ -100,10 +101,13 @@ int main(void)
     uint32_t next_input = 0;
     uint32_t seconds = 0;
     int32_t enc_count = 0;
+    uint8_t last_key = INPUT_KEY_NONE;
     char buf[12];
 
     nvic_clear();
     clock_init();
+    log_init();
+    log_printf("rt950os bring-up, sysclk %lu Hz\n", (unsigned long)system_core_clock);
     backlight_init();
     backlight_set(true);
     lcd_init();
@@ -118,6 +122,12 @@ int main(void)
             next_input += 20;
             input_read(&in);
             draw_inputs(&in, enc_count);
+            if (in.key != last_key) {
+                if (in.key != INPUT_KEY_NONE) {
+                    log_printf("key %u\n", in.key);
+                }
+                last_key = in.key;
+            }
         }
 
         if ((int32_t)(clock_millis() - next) >= 0) {

@@ -26,6 +26,11 @@ jobs:
           cmake -S rt950os -B rt950os/build -G Ninja
           cmake --build rt950os/build
 
+      - name: Boot the image in an emulator
+        run: |
+          python3 -m pip install unicorn==2.1.4
+          python3 rt950os/tools/emu_smoke.py rt950os/build/rt950os.elf rt950os/build/rt950os.bin
+
       - name: Check BTF wrapping against the OEM image
         working-directory: firmware/scripts
         run: |

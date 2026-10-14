@@ -38,6 +38,22 @@ The linker script puts the `RT-950` model block at image offset `0x3E0`,
 where the OEM updater reads it, and `tools/mkbtf.py` refuses to wrap an image
 without it.
 
+## Debug log and emulator test
+
+The firmware logs over SEGGER RTT, which needs no extra pins: J-Link RTT
+Viewer, OpenOCD (`rtt setup` / `rtt start`) or pyOCD find the control block in
+RAM and show the output. The boot line reports the system clock, and every key
+press logs its raw code.
+
+`tools/emu_smoke.py` boots the image in the Unicorn CPU emulator. It checks
+the boot log, the TFT init bytes on the bus and the first full-screen fill.
+CI runs it on every push:
+
+```sh
+python3 -m pip install unicorn
+python3 rt950os/tools/emu_smoke.py rt950os/build/rt950os.elf rt950os/build/rt950os.bin
+```
+
 ## Before flashing anything
 
 Make a full SWD backup first. We do not yet know whether the USB update mode

@@ -39,6 +39,8 @@ add_executable(rt950os
     src/app/main.c
     src/app/model_info.c
     src/hal/clock.c
+    src/hal/log.c
+    src/hal/syscalls.c
     src/drivers/backlight.c
     src/drivers/lcd.c
     src/drivers/font8x16.c
