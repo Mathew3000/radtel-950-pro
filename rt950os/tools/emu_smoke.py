@@ -25,6 +25,8 @@ It then checks:
 - the radio ends up receiving 145.5 MHz on the PE8 chip with the other chip
   asleep and the VHF RX path (PB0) selected;
 - the TX path selects (PB1, PE7, PE14) were never set;
+- the SPI flash only ever sees read commands, and the calibration block is
+  read at boot;
 - "PROGRAMBT9000U" then "UPDATE" on the cable UART get two 0x06 ACKs and a
   reset into the bootloader, as with the stock firmware.
 
@@ -42,6 +44,8 @@ FLASH, RAM, PERIPH, PPB = 0x08000000, 0x20000000, 0x40000000, 0xE0000000
 APP_BASE = 0x08002C00
 CRM = 0x40021000
 UART4 = 0x40004C00
+SPI2 = 0x40003800
+FLASH_CS = 1 << 12  # PB12
 GPIOB = 0x40010C00
 GPIOC = 0x40011000
 GPIOD = 0x40011400
@@ -158,6 +162,8 @@ def main():
                 ever_set[port] |= set_bits
             else:
                 odt[port] &= ~(value & 0xFFFF)
+            if port == GPIOB and not odt[GPIOB] & FLASH_CS and (not flash_cmds or flash_cmds[-1]):
+                flash_cmds.append([])
         if addr in (GPIOE + GPIO_SCR, GPIOE + GPIO_CLR):
             old = bk.odt
             if addr == GPIOE + GPIO_SCR:
@@ -188,6 +194,14 @@ def main():
     uc.hook_add(UC_HOOK_MEM_WRITE, on_write, begin=GPIOC, end=GPIOC + 0x20)
 
     uart_tx = []
+    flash_cmds = []  # SPI flash transactions: bytes sent while PB12 is low
+
+    def on_spi(uc, access, addr, size, value, data):
+        if not odt[GPIOB] & FLASH_CS and flash_cmds:
+            flash_cmds[-1].append(value & 0xFF)
+
+    uc.mem_write(SPI2 + 8, struct.pack("<I", 0x03))  # STS: TX empty, RX full
+    uc.hook_add(UC_HOOK_MEM_WRITE, on_spi, begin=SPI2 + 0x0C, end=SPI2 + 0x0F)
     uc.mem_write(UART4, struct.pack("<I", 0xC0))  # STS: transmit buffer empty, done
     uc.hook_add(UC_HOOK_MEM_WRITE, lambda uc, a, addr, size, value, d: uart_tx.append(value & 0xFF),
                 begin=UART4 + 4, end=UART4 + 7)
@@ -254,6 +268,14 @@ def main():
             failures.append(f"TX path select set on port {port:#x}: {ever_set[port] & mask:#06x}")
     if "rx 145500000 Hz on bk0" not in log:
         failures.append("RX start missing from the RTT log")
+
+    # SPI flash: read only, with the ID and the calibration block read at boot
+    ops = sorted({t[0] for t in flash_cmds if t})
+    print("SPI flash opcodes:", [hex(o) for o in ops])
+    if set(ops) - {0x03, 0x9F}:
+        failures.append(f"SPI flash got opcodes other than read and read-ID: {[hex(o) for o in ops]}")
+    if not any(t[:4] == [0x03, 0x00, 0xF0, 0x00] and len(t) == 4 + 0x250 for t in flash_cmds):
+        failures.append("calibration block 0xF000-0xF24F not read")
 
     # Updater "Upgrade Mode" handshake on the cable UART. Unicorn delivers no
     # interrupts, so the bytes go straight into the driver's ring buffer.

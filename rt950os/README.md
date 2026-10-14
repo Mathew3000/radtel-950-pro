@@ -31,6 +31,10 @@ the RSSI to be off by a few dB. Nothing in this image can transmit: the TX
 path selects are held low and BK4829 register 0x30 only gets the idle and
 receive values.
 
+At boot it also reads the SPI flash ID and the stock calibration block
+(0xF000-0xF24F), shows the ID and a checksum under the title and dumps the
+block over RTT. The flash driver has no write or erase command.
+
 Turning the power switch off switches the radio off, as with stock firmware
 (PE0 goes high, then PA11 is released; `src/app/power.c`).
 

@@ -19,6 +19,8 @@
  * The OEM updater's "Upgrade Mode" works from this image too (update.c), and
  * turning the power switch off switches the radio off (power.c).
  */
+#include <string.h>
+
 #include "clock.h"
 #include "backlight.h"
 #include "lcd.h"
@@ -28,6 +30,7 @@
 #include "rf.h"
 #include "update.h"
 #include "power.h"
+#include "spi_flash.h"
 
 /*
  * The OEM bootloader starts the application and may leave interrupts enabled.
@@ -59,7 +62,6 @@ static void draw_test_screen(void)
 
     lcd_fill(LCD_BLACK);
     lcd_draw_string(8, 8, "rt950os", LCD_WHITE, LCD_BLACK);
-    lcd_draw_string(8, 28, "bring-up test", LCD_GREY, LCD_BLACK);
 
     for (unsigned i = 0; i < sizeof(bars) / sizeof(bars[0]); i++) {
         lcd_fill_rect(i * bar_w, 56, bar_w, 40, bars[i]);
@@ -200,6 +202,44 @@ static void draw_rssi(int16_t dbm, bool open)
     lcd_draw_string(x, 302, open ? " dBm OPEN" : " dBm    ", open ? LCD_GREEN : LCD_WHITE, LCD_BLACK);
 }
 
+/*
+ * Read the SPI flash ID and the stock calibration block, log the block over
+ * RTT as a hex dump and show the ID and a checksum on screen. Read only.
+ */
+static uint8_t cal[SPI_FLASH_CAL_SIZE];
+
+static void show_flash(void)
+{
+    char line[32] = "flash ";
+    uint32_t id, sum = 0;
+
+    spi_flash_init();
+    id = spi_flash_read_id();
+    spi_flash_read(SPI_FLASH_CAL_ADDR, cal, sizeof(cal));
+
+    log_printf("spi flash id %06lx, calibration at %04x:\n", (unsigned long)id, SPI_FLASH_CAL_ADDR);
+    for (unsigned off = 0; off < sizeof(cal); off += 16) {
+        char hex[16 * 3 + 1];
+        for (unsigned i = 0; i < 16; i++) {
+            static const char digits[] = "0123456789abcdef";
+            hex[i * 3] = digits[cal[off + i] >> 4];
+            hex[i * 3 + 1] = digits[cal[off + i] & 0xF];
+            hex[i * 3 + 2] = ' ';
+            sum += cal[off + i];
+        }
+        hex[16 * 3 - 1] = '\0';
+        log_printf("%04x: %s\n", SPI_FLASH_CAL_ADDR + off, hex);
+    }
+
+    hex16(&line[6], (uint16_t)(id >> 8));
+    hex16(&line[10], (uint16_t)(id << 8));
+    line[12] = ' ';
+    memcpy(&line[13], "cal ", 4);
+    hex16(&line[17], (uint16_t)sum);
+    line[21] = '\0';
+    lcd_draw_string(8, 28, line, LCD_GREY, LCD_BLACK);
+}
+
 int main(void)
 {
     uint32_t next = 0;
@@ -230,6 +270,7 @@ int main(void)
 
     rf_init();
     update_init();
+    show_flash();
 
     for (;;) {
         int32_t steps = input_encoder_poll();

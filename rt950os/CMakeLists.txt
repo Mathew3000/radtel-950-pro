@@ -26,6 +26,7 @@ add_library(at32 STATIC
     ${AT32_LIB}/drivers/src/at32f403a_407_misc.c
     ${AT32_LIB}/drivers/src/at32f403a_407_flash.c
     ${AT32_LIB}/drivers/src/at32f403a_407_usart.c
+    ${AT32_LIB}/drivers/src/at32f403a_407_spi.c
 )
 target_include_directories(at32 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -48,6 +49,7 @@ add_executable(rt950os
     src/drivers/input.c
     src/drivers/bk4829.c
     src/drivers/rf.c
+    src/drivers/spi_flash.c
     src/hal/uart.c
     src/app/update.c
     src/app/power.c

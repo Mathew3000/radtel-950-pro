@@ -16,7 +16,7 @@
 
 #include "at32f403a_407.h"
 
-#define LOG_BUF_SIZE 1024
+#define LOG_BUF_SIZE 4096
 
 typedef struct {
     const char *name;
