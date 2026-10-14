@@ -58,7 +58,7 @@ set_target_properties(rt950os PROPERTIES LINK_DEPENDS ${LINKER_SCRIPT})
 # rt950os.btf: fwcrypt-encrypted image for the OEM USB updater or radtel_flash.py
 add_custom_command(TARGET rt950os POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:rt950os> rt950os.bin
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/mkbtf.py rt950os.bin rt950os.btf
+    COMMAND ${Python3_EXECUTABLE} -B ${CMAKE_CURRENT_SOURCE_DIR}/tools/mkbtf.py rt950os.bin rt950os.btf
     COMMAND ${CMAKE_SIZE} $<TARGET_FILE:rt950os>
     WORKING_DIRECTORY $<TARGET_FILE_DIR:rt950os>
     BYPRODUCTS rt950os.bin rt950os.btf
