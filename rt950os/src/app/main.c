@@ -15,13 +15,18 @@
 #include "log.h"
 
 /*
- * The OEM bootloader passes a flag in r0 when it starts the application, so
- * it may run before us with interrupts enabled. Start from a clean NVIC so a
- * leftover interrupt cannot land in Default_Handler.
+ * The OEM bootloader starts the application and may leave interrupts enabled.
+ * Point VTOR at our vector table and start from a clean NVIC, so a leftover
+ * interrupt cannot land in the bootloader's handlers or Default_Handler.
  */
 static void nvic_clear(void)
 {
+    extern const uint32_t g_pfnVectors[];
+
     __disable_irq();
+    /* SystemInit points VTOR at 0x08000000, which is the bootloader's table */
+    SCB->VTOR = (uint32_t)g_pfnVectors;
+    __DSB();
     SysTick->CTRL = 0;
     for (unsigned i = 0; i < sizeof(NVIC->ICER) / sizeof(NVIC->ICER[0]); i++) {
         NVIC->ICER[i] = 0xFFFFFFFFU;

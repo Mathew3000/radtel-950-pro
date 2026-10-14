@@ -28,10 +28,14 @@ _estack = 0x20018000;    /* end of RAM */
 _Min_Heap_Size = 0x200;      /* required amount of heap  */
 _Min_Stack_Size = 0x400; /* required amount of stack */
 
-/* Specify the memory areas */
+/* Specify the memory areas.
+   The OEM bootloader occupies 0x08000000-0x08002BFF and the application is
+   linked at 0x08002C00: absolute pointers in the V0.18 image (function
+   pointers, the keypad tables, the "UPDATE" string) only resolve with that
+   base. The bootloader writes the BTF there, so we link there too. */
 MEMORY
 {
-FLASH (rx)      : ORIGIN = 0x08000000, LENGTH = 1024K
+FLASH (rx)      : ORIGIN = 0x08002C00, LENGTH = 1024K - 0x2C00
 RAM (xrw)       : ORIGIN = 0x20000000, LENGTH = 96K
 SPIM (rx)       : ORIGIN = 0x08400000, LENGTH = 16384K
 }
@@ -49,9 +53,22 @@ SECTIONS
 
   /* Model block the OEM updater sends with CMD 0x02. It must sit at image
      offset 0x3E0, below the 0x800 bytes that fwcrypt leaves in plain text. */
-  .model_info 0x080003E0 :
+  .model_info ORIGIN(FLASH) + 0x3E0 :
   {
     KEEP(*(.model_info))
+  } >FLASH
+
+  /* Image offsets 0x400-0x7FF are a 1 KB block that fwcrypt does not
+     decrypt and that holds the fwcrypt key. In the OEM image it is not
+     readable code, although the OEM reset vector points into it, so the
+     bootloader probably transforms it in a way we do not know yet. Keep it
+     empty (all zero, which also makes the fwcrypt key zero) so nothing we
+     need lives there. */
+  .btf_reserved ORIGIN(FLASH) + 0x400 :
+  {
+    FILL(0x00)
+    BYTE(0)
+    . = 0x400;
   } >FLASH
 
   /* The program code and other data goes into FLASH */

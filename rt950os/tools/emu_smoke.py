@@ -26,6 +26,7 @@ from unicorn import Uc, UcError, UC_ARCH_ARM, UC_MODE_THUMB, UC_MODE_MCLASS, UC_
 from unicorn.arm_const import UC_ARM_REG_SP, UC_ARM_REG_PC, UC_CPU_ARM_CORTEX_M4
 
 FLASH, RAM, PERIPH, PPB = 0x08000000, 0x20000000, 0x40000000, 0xE0000000
+APP_BASE = 0x08002C00
 CRM = 0x40021000
 GPIOD = 0x40011400
 GPIO_SCR, GPIO_CLR = 0x10, 0x14
@@ -65,7 +66,7 @@ def main():
     uc.mem_map(RAM, 96 * 1024)
     uc.mem_map(PERIPH, 0x30000)
     uc.mem_map(PPB, 0x100000)
-    uc.mem_write(FLASH, image)
+    uc.mem_write(APP_BASE, image)
 
     tick = syms["tick_ms"]
     gpiod_odt = [0xFFFF]

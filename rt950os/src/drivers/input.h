@@ -7,12 +7,9 @@
 #define INPUT_KEY_NONE 0xFF
 
 /*
- * Raw input state for bring-up. Key codes are positions, not functions:
- *   0       PE5 pulled low (direct key)
- *   1       PA12 pulled low (direct key)
- *   2..21   matrix step * 4 + row + 2, step 0-3 = PC0-PC3 driven low one at
- *           a time, step 4 = no column driven; row 0-3 = PD4-PD7 read low
- * The mapping from codes to labelled keys is to be filled in on hardware.
+ * Raw input state for bring-up. Key codes are the OEM firmware's: 0 and 1
+ * for the direct keys on PE5 and PA12, 0x02-0x15 from the matrix (see
+ * input.c). Which label each code belongs to is to be confirmed on hardware.
  */
 typedef struct {
     uint8_t key;

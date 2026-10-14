@@ -31,7 +31,7 @@ Outputs in `rt950os/build/`:
 | File | Use |
 | --- | --- |
 | `rt950os.elf` | Debugging over SWD |
-| `rt950os.bin` | Plain image, flash at `0x08000000` with an SWD probe |
+| `rt950os.bin` | Plain image, flash at `0x08002C00` with an SWD probe |
 | `rt950os.btf` | fwcrypt-encrypted image for the OEM USB updater or `radtel_flash.py` |
 
 The linker script puts the `RT-950` model block at image offset `0x3E0`,
@@ -54,25 +54,48 @@ python3 -m pip install unicorn
 python3 rt950os/tools/emu_smoke.py rt950os/build/rt950os.elf rt950os/build/rt950os.bin
 ```
 
+## Flash layout
+
+| Range | Contents |
+| --- | --- |
+| `0x08000000` to `0x08002BFF` | OEM bootloader (11 KB). Never write or erase it. |
+| `0x08002C00` onwards | Application. The OEM image and rt950os both link here. |
+
+The OEM application's absolute pointers only make sense at `0x08002C00`. With
+that base, the NMI handler is a plain `bx lr`, HardFault loops on itself, and
+the keypad tables at `0x0803013a` hold column masks `0x0F 0x0E 0x0D 0x0B
+0x07`. At `0x08000000` they all point at garbage.
+
+Image offsets `0x400` to `0x7FF` (`0x08003000` to `0x080033FF`) are a 1 KB
+block that fwcrypt does not decrypt. In the V0.18 BTF it looks random, but the
+OEM reset vector (`0x080032a1`) points into it, so the bootloader must turn it
+into code in some way we have not worked out. rt950os keeps this block empty,
+and `tools/mkbtf.py` refuses an image that uses it.
+
+This also means `firmware/decrypted.bin` is not a complete OEM image: its
+`0x400` to `0x7FF` block is not what ends up in flash. Do not use it to
+restore the radio over SWD.
+
 ## Before flashing anything
 
-Make a full SWD backup first. We do not yet know whether the USB update mode
-lives in a separate bootloader or in the OEM application itself. The app
-contains the `PROGRAMBT9000U` and `UPDATE` handshake strings at `0x0802d58d`,
-so it may well be the app. If so, flashing this image removes USB updates
-until the stock firmware is restored over SWD.
+Make a full SWD backup first:
 
-Back up:
-
-- main flash `0x08000000` to `0x080FFFFF`
+- main flash `0x08000000` to `0x080FFFFF` (bootloader and application)
 - boot memory `0x1FFFB000` to `0x1FFFEFFF`
 - user system data (option bytes) `0x1FFFF800` to `0x1FFFF82F`
 - the external SPI NOR flash, which probably holds calibration and channels
 
+The USB update protocol (`BOOTLOADER_V3`) is served by the bootloader, which
+rt950os leaves alone. How the radio enters update mode is still open. The OEM
+app handles the `PROGRAMBT9000U` / `UPDATE` handshake, so it may be the app
+that hands over to the bootloader. If there is no power-on key combo, rt950os
+has to implement that hand-over before USB updates work again. Until then,
+the way back is SWD.
+
 ## Flashing
 
-Over SWD (recommended while the update path is unknown): write `rt950os.bin`
-at `0x08000000`.
+Over SWD: write `rt950os.bin` at `0x08002C00`. Don't use a full chip erase,
+because that also erases the bootloader.
 
 Over USB with the OEM update mode:
 
@@ -82,14 +105,13 @@ python3 firmware/scripts/radtel_flash.py --port /dev/ttyACM0 rt950os/build/rt950
 
 ## Back to stock
 
-Over USB, if update mode still works: send the official BTF unchanged.
+Over USB, if update mode can be entered: send the official BTF unchanged.
 
 ```sh
 python3 firmware/scripts/radtel_flash.py --port /dev/ttyACM0 "firmware/reference firmware/RT_950Pro_V0.18_250919.BTF"
 ```
 
-Over SWD: write the main flash backup, or `firmware/decrypted.bin`, at
-`0x08000000`.
+Over SWD: write back your main flash backup.
 
 `radtel_flash.py` used to decrypt a BTF before sending it. The radio decrypts
 the data itself, so that would have written a scrambled image. It now sends a

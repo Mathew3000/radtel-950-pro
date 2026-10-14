@@ -1,17 +1,16 @@
 /*
  * Keypad, encoder and PTT inputs.
  *
- * Pins come from docs/pinout.md and the OEM Keypad_ScanMatrix (0x08013618):
- * - PE5 and PA12 are read first as direct keys (low = pressed).
+ * Follows the OEM Keypad_ScanMatrix (0x08013618) and its tables at
+ * 0x0803013a (column set masks), 0x08030144 (column clear masks) and
+ * 0x0803014e (key codes), read with the application base 0x08002C00:
+ * - PE5 low gives code 0 and PA12 low gives code 1 (direct keys).
  * - Otherwise PC0-PC3 are all driven low; if PD4-PD7 all read high, no
- *   matrix key is down. Then five steps drive different column patterns from
- *   tables at 0x0803013a/0x08030144 and read PD4-PD7.
- *
- * The literal pool points those tables (and the key map at 0x0803014e) into
- * what decrypted.bin holds as a GBK pinyin table, so their contents are not
- * known yet. Until they are, this driver scans one column low at a time plus a
- * fifth step with no column driven, and reports raw positions for mapping on
- * hardware.
+ *   matrix key is down.
+ * - Five steps then drive: no column low, PC0 low, PC1 low, PC2 low, PC3 low.
+ *   In each step exactly one of PD7, PD6, PD5, PD4 reading low picks the code
+ *   at key_codes[step * 4 + 0..3].
+ * Which label each code belongs to is still to be confirmed on the radio.
  */
 #include "input.h"
 #include "board.h"
@@ -69,39 +68,43 @@ void input_init(void)
     pin_input(BOARD_ENC_PORT, BOARD_ENC_A_PIN | BOARD_ENC_B_PIN, GPIO_PULL_UP);
 }
 
-static uint8_t rows_low(void)
-{
-    /* PD4..PD7 -> bits 0..3, set when the row reads low */
-    return (uint8_t)(~(ROW_PORT->idt >> 4) & 0x0F);
-}
+static const uint16_t col_set[5] = { 0x0F, 0x0E, 0x0D, 0x0B, 0x07 };
+static const uint16_t col_clr[5] = { 0x00, 0x01, 0x02, 0x04, 0x08 };
+static const uint8_t key_codes[5][4] = {
+    { 0x0A, 0x0E, 0x12, 0x0D },
+    { 0x06, 0x03, 0x09, 0x02 },
+    { 0x0C, 0x10, 0x14, 0x15 },
+    { 0x0B, 0x0F, 0x13, 0x11 },
+    { 0x07, 0x08, 0x04, 0x05 },
+};
 
 static uint8_t scan_matrix(void)
 {
+    uint8_t key = INPUT_KEY_NONE;
+
     COL_PORT->clr = COL_PINS;
     settle();
-    if (rows_low() == 0) {
+    if ((ROW_PORT->idt & ROW_PINS) == ROW_PINS) {
         COL_PORT->scr = COL_PINS;
         return INPUT_KEY_NONE;
     }
 
-    for (unsigned step = 0; step < 5; step++) {
-        COL_PORT->scr = COL_PINS;
-        if (step < 4) {
-            COL_PORT->clr = (uint16_t)(GPIO_PINS_0 << step);
-        }
+    for (unsigned step = 0; step < 5 && key == INPUT_KEY_NONE; step++) {
+        COL_PORT->scr = col_set[step];
+        COL_PORT->clr = col_clr[step];
         settle();
 
-        uint8_t rows = rows_low();
-        for (unsigned row = 0; row < 4; row++) {
-            if (rows & (1U << row)) {
-                COL_PORT->scr = COL_PINS;
-                return (uint8_t)(2 + step * 4 + row);
-            }
+        switch (ROW_PORT->idt & ROW_PINS) {
+        case 0x70: key = key_codes[step][0]; break; /* PD7 low */
+        case 0xB0: key = key_codes[step][1]; break; /* PD6 low */
+        case 0xD0: key = key_codes[step][2]; break; /* PD5 low */
+        case 0xE0: key = key_codes[step][3]; break; /* PD4 low */
+        default: break;
         }
     }
 
     COL_PORT->scr = COL_PINS;
-    return INPUT_KEY_NONE;
+    return key;
 }
 
 void input_read(input_raw_t *out)
