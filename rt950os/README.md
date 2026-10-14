@@ -11,6 +11,11 @@ controller, see `src/drivers/lcd.c`). What to check on the radio: the bars
 read white, yellow, cyan, green, red, blue, black, grey from the red corner,
 and the counter advances once per second.
 
+Below that, the screen shows raw inputs for mapping on hardware: a key code
+for the key held down (see `src/drivers/input.h`), both PTT inputs, and an
+encoder counter with the raw A/B levels. Writing down the code for each
+labelled key gives us the keypad map.
+
 ## Build
 
 Needs `arm-none-eabi-gcc` (tested with 13.2), CMake 3.22 or newer, Ninja and

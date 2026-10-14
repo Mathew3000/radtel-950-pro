@@ -42,6 +42,7 @@ add_executable(rt950os
     src/drivers/backlight.c
     src/drivers/lcd.c
     src/drivers/font8x16.c
+    src/drivers/input.c
 )
 target_include_directories(rt950os PRIVATE src src/hal src/drivers src/app)
 target_compile_options(rt950os PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wall -Wextra>)
