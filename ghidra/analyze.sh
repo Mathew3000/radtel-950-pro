@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Import an RT950 application image into a headless Ghidra project at the
-# correct flash base, run auto-analysis, apply known symbols and export the
-# decompiled C.
+# Import an RT950 application image into a headless Ghidra project at its
+# link address 0x08002C00 (after the bootloader), run auto-analysis, apply
+# known symbols and export the decompiled C.
 #
 #   ghidra/analyze.sh [image.bin] [symbols.csv]
 #
@@ -34,7 +34,7 @@ fi
 
 "$GHIDRA_INSTALL_DIR/support/analyzeHeadless" "$proj_dir" RT950 \
 	-import "$image" -overwrite \
-	-loader BinaryLoader -loader-baseAddr 0x08000000 \
+	-loader BinaryLoader -loader-baseAddr 0x08002C00 \
 	-processor ARM:LE:32:Cortex -cspec default \
 	-scriptPath "$here/scripts" \
 	-preScript AT32Setup.java \

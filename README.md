@@ -11,7 +11,7 @@ This repository collects notes, tooling, and extracted firmware artifacts for th
   - SI4732 broadcast receiver: bit-banged I2C on PA8/PA9.
   - Display: 320×240 TFT on a GPIOD[15:8] 8080 bus, driven through custom routines (`LCD_WriteCommand`, `LCD_WriteData`, etc.).
   - Keypad, encoder, PTT relays, band relays, and audio front-end have been mapped in `docs/pinout.md` and `docs/display.md`.
-- **Ghidra pipeline**: `ghidra/analyze.sh` imports the firmware at the correct base (0x08000000), applies the AT32 memory map and known names, and exports decompiled C to `ghidra/out/`. See `ghidra/README.md`.
+- **Ghidra pipeline**: `ghidra/analyze.sh` imports the firmware at its link address (0x08002C00, after the bootloader), applies the AT32 memory map and known names, and exports decompiled C to `ghidra/out/`. See `ghidra/README.md`.
 - **Function Catalogue**: Human-readable names and annotations are tracked in `docs/Function_Names.csv` and `firmware/RE/gemini_remap.csv`.
 
 ## Repository Layout

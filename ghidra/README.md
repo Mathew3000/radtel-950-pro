@@ -20,16 +20,25 @@ installs Ghidra in the background, so it is ready when needed.
 
 ## Image layout
 
-The application is linked at **0x08000000** (AT32F403A flash): the vector
-table at offset 0 holds the initial SP `0x20017bb0` (96 KiB SRAM) and the
-reset vector `0x080032a1`. The older project in
-`firmware/RE/decrypted-firmware` imported the image at `0x80000000`, which
-leaves every literal-pool pointer into flash unresolved; that is where the
-`FUN_8000xxxx` names in older notes come from. Subtract `0x78000000` to get
-the real address (`FUN_80007f04` is `0x08007f04`).
+The application is linked at **0x08002C00**; `0x08000000-0x08002BFF` is the
+bootloader. At that base the vector table resolves to real handlers
+(`NMI_Handler` is `bx lr`, `HardFault_Handler` is `b .`) and literal-pool
+pointers land on strings and function prologues. The initial SP is
+`0x20017bb0` (96 KiB SRAM).
 
-The reset handler stores `r0` into `0x2000da82` before anything else, so the
-bootloader appears to pass a flag to the application.
+Image offsets `0x400-0x7FF` (`0x08003000-0x080033FF`) are the fwcrypt key
+block. `fwcrypt_io.py` leaves it as is, so it is not real code. The reset
+vector (`0x080032a1`) and the shared default IRQ handler (`0x080032bb`)
+point into it, which means `Reset_Handler` is still unknown.
+`AT32Setup.java` maps this range as an uninitialized `FWCRYPT_KEY` block so
+Ghidra does not decompile the noise.
+
+Older material used other bases. The GUI project in
+`firmware/RE/decrypted-firmware` imported the image at `0x80000000`, so
+its `FUN_8000xxxx` names are image offsets: add `0x2C00` and drop the
+`0x8` prefix (`FUN_80007f04` is `0x0800AB04`). Addresses in
+`firmware/RE/bootloader/bootloader_protocol_notes.md` came from an import
+at `0x08000000` and are `0x2C00` too low as well.
 
 Images captured from the updater (`firmware/RE/firmware dumps/upgrade_*.bin`)
 are still fwcrypt-encrypted past offset 0x800. Decrypt them first:

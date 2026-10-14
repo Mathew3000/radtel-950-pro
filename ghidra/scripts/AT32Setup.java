@@ -1,8 +1,8 @@
 // Prepare a raw AT32F403A/407 (Cortex-M4F) flash image for analysis:
 // memory map (SRAM, boot ROM, XMC, peripherals), flash block permissions,
 // and the vector table with CMSIS handler names as functions.
-// Expects the image imported with the Raw Binary loader at 0x08000000 and
-// language ARM:LE:32:Cortex. Run as a preScript so auto-analysis starts
+// Expects the application image imported with the Raw Binary loader at
+// 0x08002C00 (after the 11 KiB bootloader) and language ARM:LE:32:Cortex. Run as a preScript so auto-analysis starts
 // from the vector table entries; it is idempotent and can be re-run.
 // Port of firmware/scripts/setup-artery-cortex-m-memory-map.py (Jython is
 // no longer bundled with Ghidra 12).
@@ -20,7 +20,11 @@ import ghidra.program.model.symbol.SourceType;
 
 public class AT32Setup extends GhidraScript {
 
-	static final long FLASH_BASE = 0x08000000L;
+	static final long FLASH_START = 0x08000000L;
+	static final long APP_BASE = 0x08002C00L;
+	// Image offsets 0x400-0x7FF hold the fwcrypt key block; fwcrypt_io.py does
+	// not decrypt it, so the bytes there are not the real code.
+	static final long KEY_BLOCK_OFF = 0x400L, KEY_BLOCK_LEN = 0x400L;
 
 	// name, start, end, perms
 	static final Object[][] REGIONS = {
@@ -145,13 +149,30 @@ public class AT32Setup extends GhidraScript {
 			printerr("Expected language ARM:LE:32:Cortex, got " + currentProgram.getLanguageID());
 		}
 		Memory mem = currentProgram.getMemory();
-		MemoryBlock flash = mem.getBlock(A(FLASH_BASE));
+		MemoryBlock flash = mem.getBlock(A(APP_BASE));
 		if (flash == null || !flash.isInitialized()) {
-			throw new IllegalStateException("No image bytes at 0x08000000: import with -loader BinaryLoader -loader-baseAddr 0x08000000");
+			throw new IllegalStateException("No image bytes at 0x08002C00: import with -loader BinaryLoader -loader-baseAddr 0x08002C00");
 		}
+		long flashEnd = flash.getEnd().getOffset();
 		// Read-only flash lets the decompiler fold constants from literal pools.
 		flash.setName("FLASH");
 		flash.setPermissions(true, false, true);
+
+		Address keyStart = A(APP_BASE + KEY_BLOCK_OFF);
+		Address keyEnd = keyStart.add(KEY_BLOCK_LEN - 1);
+		if (flash.contains(keyEnd) && mem.getBlock(keyStart).isInitialized()) {
+			mem.split(flash, keyStart);
+			MemoryBlock key = mem.getBlock(keyStart);
+			mem.split(key, keyEnd.add(1));
+			key = mem.getBlock(keyStart);
+			key.setName("FWCRYPT_KEY");
+			key.setPermissions(true, false, false);
+			mem.convertToUninitialized(key);
+			mem.getBlock(keyEnd.add(1)).setName("FLASH");
+			setPlateComment(keyStart, "fwcrypt key block (image offset 0x400-0x7FF), not decrypted by\n"
+				+ "fwcrypt_io.py. The real code here (including Reset_Handler) is unknown.");
+		}
+		region(mem, "BOOTLOADER", FLASH_START, APP_BASE - 1, "RX");
 
 		for (Object[] r : REGIONS) {
 			region(mem, (String) r[0], (Long) r[1], (Long) r[2], (String) r[3]);
@@ -159,10 +180,9 @@ public class AT32Setup extends GhidraScript {
 
 		// Vector table: word pointers with CMSIS names, handlers become functions.
 		Map<Long, String> handlers = new HashMap<>();
-		long flashEnd = flash.getEnd().getOffset();
 		int used = 0;
 		for (int i = 0; i < VECTORS.length; i++) {
-			Address slot = A(FLASH_BASE + 4L * i);
+			Address slot = A(APP_BASE + 4L * i);
 			long v = mem.getInt(slot) & 0xFFFFFFFFL;
 			clearListing(slot, slot.add(3));
 			createData(slot, PointerDataType.dataType);
@@ -171,10 +191,15 @@ public class AT32Setup extends GhidraScript {
 				println(String.format("Initial SP 0x%08x", v));
 				continue;
 			}
-			if (VECTORS[i] == null || v == 0 || v < FLASH_BASE || v > flashEnd) {
+			if (VECTORS[i] == null || v == 0 || v < APP_BASE || v > flashEnd) {
 				continue;
 			}
 			long target = v & ~1L;
+			if (!mem.getBlock(A(target)).isInitialized()) {
+				// Points into the undecrypted key block: label only, no code.
+				createLabel(A(target), VECTORS[i], true, SourceType.ANALYSIS);
+				continue;
+			}
 			// Several unused vectors usually share one weak default handler.
 			String name = handlers.containsKey(target) ? "Default_Handler" : VECTORS[i];
 			handlers.put(target, name);
