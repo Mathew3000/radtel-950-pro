@@ -1,8 +1,15 @@
 # rt950os
 
 Open replacement firmware for the Radtel RT-950 Pro (AT32F403A). Right now it
-is a bring-up skeleton: it sets the clock to 240 MHz from the internal
-oscillator and blinks the LCD backlight (PC12) at 1 Hz.
+is a bring-up test image. It sets the clock to 240 MHz from the internal
+oscillator, blinks the LCD backlight (PC12) at 1 Hz, and draws a test screen
+on the TFT: text, colour bars, corner markers (red top left, green bottom
+right) and a seconds counter.
+
+The display driver uses the OEM pinout and init sequence (an ST7789-style
+controller, see `src/drivers/lcd.c`). What to check on the radio: the bars
+read white, yellow, cyan, green, red, blue, black, grey from the red corner,
+and the counter advances once per second.
 
 ## Build
 
