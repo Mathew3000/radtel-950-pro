@@ -1,0 +1,55 @@
+address,kind,name,comment
+0x08000630,function,BadInstruction_Handler,Purpose: A trap or handler for when the CPU encounters an unknown/bad instruction. This is likely a default interrupt vector.
+0x080008d4,function,util_integer_to_string,Purpose: Converts an unsigned integer into a null-terminated ASCII string. This is a common 'itoa' implementation. param_1: Pointer to a buffer/struct. The resulting string is stored at offset +0x24 from this pointer. param_3: The unsigned integer to convert.
+0x08000bc0,function,lib_memset,Purpose: Standard library function to fill a block of memory with a specific byte value. It's optimized for word/half-word writes. param_1: (void*) destination pointer. param_2: (uint) number of bytes to fill. param_3: (byte) value to fill with.
+0x08000f94,function,lib_bzero,"Purpose: Standard library function to fill a block of memory with zeros. It's an optimized 'memset(..., 0, ...)' or 'bzero'. param_1: (void*) destination pointer. param_2: (uint) number of bytes to write."
+0x08001026,function,lib_strncpy,"Purpose: Standard library function to copy a string with a maximum length, padding with nulls if src is shorter than len. param_1: (char*) destination. param_2: (char*) source. param_3: (int) max length. Calls lib_bzero (FUN_80000f94) to pad."
+0x080037b0,function,Display_Buffer_Flush,"Streams the prepared frame buffer to the LCD over the external bus while holding PC12 as chip select. Asserts GPIOC12, primes DMA (DAT_8000396c), waits for completion, then releases the line."
+0x08003c08,function,SI4732_Write_Command,Purpose: Sends a 6-byte command packet over a serial bus (likely I2C or SPI) and then delays. param_1: (uint16_t) A 16-bit value split into two bytes in the packet. Notes: Calls FUN_8000b7a6 (a delay function) for 50ms (0x32).
+0x08007f04,function,BK4829_Init,"Purpose: Initializes a complex external peripheral (like a radio or codec) by writing a long sequence of register/value pairs. Notes: Calls a function pointer at DAT_80008180+8, likely a 'write_reg(offset, value)' function."
+0x080081b8,function,Flash_Read_Write_Block,"Purpose: Reads or writes a 128-byte (0x80) block from/to specific addresses in the main Flash or an external SPI Flash. param_1: (int) 0 = Read, 1 = Write. Notes: Accesses addresses like 0x8000, 0x9000, 0xb000, 0xf000."
+0x0800834c,function,Bluetooth_UART1_Init,Configures USART1 (PA9/PA10 at 115200 baud) and routes it to the external Bluetooth module via GPIOA remap. Enables pins with FUN_8001272c (0x400 mask) loads 0x1C200 into USART1 (0x40013800) and sets TE/RE bits before enabling the peripheral.
+0x08008518,function,Bluetooth_CommandSequencer,Builds and sends command frames to the Bluetooth module including triggering SPI flash erases and UART transactions. Drives USART callbacks captured in FUN_8000834c/FUN_800226b0; orchestrates Software_SPI_FlashErase* routines when reprogramming BT firmware.
+0x080087f4,function,Util_Calculate_XOR_Checksum,Purpose: Calculates a simple 8-bit XOR checksum over a block of data. param_1: (uint) length. param_2: (byte*) data buffer.
+0x080088f0,function,RF_Apply_Frequency_Offset,"Purpose: Applies a frequency offset to a base frequency. Used for RF channel selection. Notes: Selects a channel struct based on index at DAT_80008930+0xf4. Reads base freq from offset +0x108, offset from +0x134, and writes result to +0x114."
+0x08009110,function,Channel_Load_Config,"Purpose: Loads and parses configuration data for a specific channel (0, 1, or 2) from Flash into its runtime struct. param_1: (int) channel index [0-2]. param_2: (int) 1 = read from flash. param_3: (int) flash offset. Notes: Populates the struct at DAT_80009428 + (param_1 * 0x58)."
+0x0800956c,function,BK4829_ReadBlock_WithCRC,Purpose: Reads a block of data from an SPI peripheral and calculates a CRC-16 checksum on the fly. param_1: (uint) number of bytes to read. Notes: Uses CRC-16-CCITT-FALSE (poly 0x1021). `FUN_8002112c` is the byte read function.
+0x0800ac7c,function,GPS_Parse_NMEA_Coordinate,Purpose: Parses an NMEA coordinate string (like $GPRMC) into a data structure. param_1: (char*) NMEA string. param_2: (struct*) struct to fill. Notes: Identifies N/S (0x4E/0x53) and E/W (0x45/0x57) and converts DDMM.MMMM format.
+0x0800b024,function,Modem_Scramble_Whiten_Data,"Purpose: Scrambles/whitens a 7-byte block of data, likely for GMSK/FSK modulation. param_1: (byte*) input buffer. param_2: (byte*) output buffer. Notes: Uses a complex bit-shifting and XOR feedback algorithm."
+0x0800b368,function,DAC_Channel_Enable,Sets or clears enable bits in the DAC control register at 0x40007400. param_1: bit index (channel/trigger); param_2: 1 enable 0 disable.
+0x0800b388,function,DAC_BufferGate,Controls the DAC buffer/trigger configuration bits prior to playback. param_1: bit index (buffer flag); param_2: 1 set 0 clear.
+0x0800b3a8,function,DAC_WaveformWrite,Loads a combined waveform/control word into the DAC waveform register block. param_1: shift amount; param_2: pointer to packed control words.
+0x0800b62c,function,RF_Set_Frequency_Synthesizer,"Purpose: Sets the frequency of the RF synthesizer by writing to a peripheral's registers. param_1: (uint) Frequency value. param_2: (int) Mode. param_3: (int) Flag. Notes: Writes to registers 0x51, 0x07, 0x08 of an external peripheral."
+0x0800b7a6,function,Delay,"Purpose: A blocking delay function, likely in milliseconds. param_1: (uint) Number of milliseconds to delay. Notes: Calls a nested spin-wait loop (FUN_8000b7c2)."
+0x0800bb08,function,ToneMenu_SetLabel,Writes the text label for a tone slot on the LCD tone selection screen. param_1: column/slot index; param_2: tone class (RX/TX/etc.); param_3: UI variant. Selects appropriate string and positions it.
+0x0800bd58,function,ToneMenu_ShowEntry,Formats and renders the currently selected CTCSS/DCS tone or 'OFF' entry on the LCD. param_1: column slot (RX/TX/etc.); param_2: tone index (0xFFFF => OFF); param_3: tone category. Calls ToneGraphic_Draw to highlight the active selection.
+0x0800be34,function,ToneMenu_DrawFrequency,Formats and draws frequency/offset text under the tone selection entry. param_1: row; param_2: column; param_3: tone frequency in Hz*10; param_4: colour/palette.
+0x0800cfd4,function,ToneGraphic_Draw,Draws the tone bargraph/selection cursor and incorporates the tone palette for the current menu context. param_1: context (0=receive 1=transmit 2=dual); param_2: number of highlighted cells; param_3: palette id; param_4: non-zero to flush LCD.
+0x0800dca0,function,AudioDMA_Trigger,Arms DMA2 with a new sample buffer targeting DAC1 for tone or AFSK playback. Writes length and buffer pointer into DMA2 registers (base 0x40020430) before re-enabling the channel.
+0x0800e2e0,function,Encoder_Handle_Quadrature,"State machine for the front-panel rotary encoder on PB4/PB5; debounces movement and queues UI actions. Reads FUN_80012c26(DAT_8000e428,0x10/0x20) and calls FUN_8000e42c() to clear the latch."
+0x0800e42c,function,Clear_Encoder_Latch,
+0x0800e95c,function,Update_Flash,
+0x0800f2b0,function,APRS_SetPTT,Maps APRS modem PTT state onto the GPIO/expander lines (command 0x4001). param_1: 0=release PTT 1=assert.
+0x0800f2dc,function,APRS_SendCommand11,Sends modem command 0x11 (initialise/reset) and waits 600 ms for completion. Used when switching modem operating modes or recovering from errors.
+0x0800f354,function,APRS_Modem_CheckReady,Issues modem command 0x14 and inspects the returned status byte for busy/ready. Returns 2 when the modem signals ready-to-send and triggers APRS_Modem_ReadStatus.
+0x0800f380,function,APRS_Modem_ReadStatus,Fetches status payload from the external APRS/AFSK modem via command 0x42/0x22 and caches it. Updates status buffer stores RSSI/flags and toggles modem lines with APRS_SetPTT.
+0x0800f408,function,APRS_Modem_StartTX,Primes the modem for transmit enabling PTT and writing control bytes before sending audio. Calls APRS_SetPTT(1) queues command frames via FUN_80026fb2 and mirrors status into shared buffers.
+0x08012c26,function,Read_Encoder_GPIO,
+0x08013618,function,Keypad_ScanMatrix,"Periodically drives PC0-PC3 high and samples PD4-PD7 to decode the 5x4 keypad; gated by PE5 and PA12. Uses DAT_800136d8 (GPIOC) for columns, DAT_800136dc (GPIOD) for rows, DAT_800136d0 (PE5) and DAT_800136d4 (PA12) to enable scanning."
+0x08013c98,function,ADC_Read_PA1,"Single conversion on ADC2 channel 1 (PA1) returning an 8-bit scaled value used for audio level logic. Calls FUN_80003108(DAT_80013cd0,1,1,7) then waits on FUN_800030a4 before reading FUN_8000309e."
+0x08013cd4,function,ADC_Read_PA0,Single conversion on ADC2 channel 0 (PA0) for battery/AGC sensing. Same ADC2 sequence as FUN_80013c98 but with channel parameter 0.
+0x08013f90,function,GPS_USART3_Init,Initialises the GPS UART on PC10/PC11 (USART3) for 9600 baud NMEA reception. Remaps GPIOC pins programs USART3 registers at 0x40004800 with divisor 0x2580 (9600 baud) enables TX/RX and powers the port.
+0x0801403c,function,GPS_SerialReader,Reads NMEA bytes from USART3 buffers them and feeds the coordinate parser. Called after GPS_USART3_Init; uses DMA-like burst helper on PC10/PC11 data.
+0x080156dc,function,LCD_BlitRectangle,Streams a rectangle of pixel data (RGB565) from the frame buffer at 0x20000BD0 to the LCD. param_1: top; param_2: bottom; param_3: left; param_4: right; enforces 320x240 bounds before pushing via LCD_WriteData.
+0x0801ab04,function,PTT_Relay_Select,Controls the TX/RX relay matrix: PE13/PE12/PE14/PE7 select PTT path while PB0/PB1 drive accessory enables. Parameter 1 chooses routing profile; toggles GPIOE via FUN_80012c3a/FUN_80012c3e and clears PB0/PB1 when idle.
+0x0801c04c,function,Band_Relay_Shift_In,"Bit-banged serial readback of the RF relay latch using PE15/PE10/PE11. Clears PE15 (0x8000) before clocking, pulses PE10 (0x400) and samples PE11 (0x800) via FUN_80012c26."
+0x0801cb52,function,LCD_SetWindow,Issues column (0x2A) and row (0x2B) address commands to define the drawing window. param_1/param_2: column start/end; param_3/param_4: row start/end; calls LCD_WriteCommand/Data for each.
+0x08020f80,function,Software_SPI_FlashErase32KBlock,
+0x08020ff0,function,Software_SPI_FlashErase64KBlock,
+0x080210c0,function,Software_SPI_FlashErase4K,
+0x0802112c,function,spi_xfer_byte,
+0x08021234,function,Software_SPI_Write_Byte,
+0x08021290,function,Software_SPI_Write_Block,
+0x080226b0,function,UART4_Init,Brings up UART4 on PC10/PC11 at 115200 baud for accessory programming. Uses FUN_8001272c with the same GPIO masks writes 0x1C200 to UART4 (0x40004C00) and enables the channel (likely routed through the side connector).
+0x080271c0,function,LCD_WriteCommand,Drives the 8080 bus control lines to emit a single command byte to the TFT panel. param_1: (uint8_t) command value; manipulates GPIOD WR#/CS# via FUN_80012c3a/3e before sending.
+0x08027220,function,LCD_WriteData,Writes one data byte to the TFT panel on the 8080 bus. param_1: (uint8_t) data value; uses same GPIOD handshake as LCD_WriteCommand but sets D/C high.
