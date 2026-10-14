@@ -189,11 +189,13 @@ void bk4829_wake(bk_chip_t chip)
  * Register 0x30 values from the OEM mode setter (0x0801ed10): 0 is idle and
  * 0xBFF1 is receive (VCO, RX link, AF DAC, discriminator, PLL and RX DSP on;
  * PA gain, mic ADC and TX DSP off). The OEM writes 0x0200 first on the way
- * into receive. These are the only 0x30 values rt950os writes.
+ * into receive and transmit. 0xC1FE is transmit and is only compiled in with
+ * RT950_ENABLE_TX.
  */
 #define REG30_IDLE     0x0000
 #define REG30_RX_PREP  0x0200
 #define REG30_RX       0xBFF1
+#define REG30_TX       0xC1FE
 
 void bk4829_rx_on(bk_chip_t chip, uint32_t freq)
 {
@@ -213,6 +215,32 @@ void bk4829_rx_on(bk_chip_t chip, uint32_t freq)
     bk4829_write(chip, 0x30, REG30_RX);
     bk4829_af(chip, false);
 }
+
+#ifdef RT950_ENABLE_TX
+void bk4829_tx_on(bk_chip_t chip, uint32_t freq, uint16_t pa_bias)
+{
+    bk4829_write(chip, 0x37, 0x9D1F);
+    bk4829_write(chip, 0x30, REG30_IDLE);
+    bk4829_write(chip, 0x47, 0x6142);
+
+    bk4829_write(chip, 0x38, (uint16_t)(freq & 0xFFFF));
+    bk4829_write(chip, 0x39, (uint16_t)(freq >> 16));
+    bk4829_write(chip, 0x43, 0x3028);
+
+    /* 0x0801ebdc: clear 0x30 bit 2 */
+    bk4829_write(chip, 0x30, (uint16_t)(bk4829_read(chip, 0x30) & ~0x0004U));
+    /* No CTCSS/DCS (BK4819 practice: 0x51 = 0) */
+    bk4829_write(chip, 0x51, 0x0000);
+    /* Deviation, as for receive (0x0801f060 without scrambler) */
+    bk4829_write(chip, 0x31, (uint16_t)(bk4829_read(chip, 0x31) & ~0x0002U));
+    bk4829_write(chip, 0x40, (uint16_t)((bk4829_read(chip, 0x40) & 0xF000) | 0x04E0));
+
+    bk4829_write(chip, 0x30, REG30_RX_PREP);
+    bk4829_write(chip, 0x30, REG30_TX);
+    /* 0x0801f02c */
+    bk4829_write(chip, 0x36, pa_bias);
+}
+#endif
 
 void bk4829_af(bk_chip_t chip, bool on)
 {

@@ -27,6 +27,7 @@ add_library(at32 STATIC
     ${AT32_LIB}/drivers/src/at32f403a_407_flash.c
     ${AT32_LIB}/drivers/src/at32f403a_407_usart.c
     ${AT32_LIB}/drivers/src/at32f403a_407_spi.c
+    ${AT32_LIB}/drivers/src/at32f403a_407_dac.c
 )
 target_include_directories(at32 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -56,6 +57,13 @@ add_executable(rt950os
 )
 target_include_directories(rt950os PRIVATE src src/hal src/drivers src/app)
 target_compile_options(rt950os PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wall -Wextra>)
+
+# Transmit is off unless asked for. Leave it off until receive works on the
+# radio; see src/drivers/rf.c before turning it on.
+option(RT950_TX "Build with transmit (PTT) support" OFF)
+if(RT950_TX)
+    target_compile_definitions(rt950os PRIVATE RT950_ENABLE_TX)
+endif()
 target_link_libraries(rt950os PRIVATE at32)
 
 set(LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/ld/rt950.ld)

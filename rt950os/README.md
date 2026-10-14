@@ -27,7 +27,7 @@ Finally it receives FM on 145.500 MHz. The encoder tunes in 12.5 kHz steps
 and the RSSI, and the speaker opens while the RSSI is above -110 dBm. The
 band split, register values and RF path pins come from the OEM firmware
 (`src/drivers/rf.c`, `src/board.h`). There is no calibration yet, so expect
-the RSSI to be off by a few dB. Nothing in this image can transmit: the TX
+the RSSI to be off by a few dB. The default image cannot transmit: the TX
 path selects are held low and BK4829 register 0x30 only gets the idle and
 receive values.
 
@@ -60,6 +60,28 @@ The linker script puts the `RT-950` model block at image offset `0x3E0`,
 where the OEM updater reads it, and `tools/mkbtf.py` refuses to wrap an image
 without it.
 
+### Transmit build
+
+`-DRT950_TX=ON` adds push-to-talk, using the stock TX register sequence
+(`bk4829_tx_on` in `src/drivers/bk4829.c`). Leave it off until receive works
+on the radio. It is deliberately limited:
+
+- TX only between 144 and 146 MHz and between 430 and 440 MHz.
+- The PA drive DAC (PA5) stays at 0 and register 0x36 gets the bias of the
+  lowest stock power level. Stock firmware sets the drive from per-band
+  calibration tables that it builds in RAM at boot, and we do not have their
+  values yet. Expect very little or no output power.
+- Each transmission ends after 10 s; release PTT to transmit again.
+
+Test it into a dummy load or a power meter with an attenuator, never into an
+antenna until the output is measured. A RAM dump of a running stock radio
+over SWD (`0x20000000` to `0x20017FFF`, 96 KB) would give us the calibration tables.
+
+```sh
+cmake -S rt950os -B rt950os/build-tx -G Ninja -DRT950_TX=ON
+cmake --build rt950os/build-tx
+```
+
 ## Debug log and emulator test
 
 The firmware logs over SEGGER RTT, which needs no extra pins: J-Link RTT
@@ -68,8 +90,11 @@ RAM and show the output. The boot line reports the system clock, and every key
 press logs its raw code.
 
 `tools/emu_smoke.py` boots the image in the Unicorn CPU emulator. It checks
-the boot log, the TFT init bytes on the bus and the first full-screen fill.
-CI runs it on every push:
+the boot log, the TFT init bytes on the bus, the first full-screen fill, the
+BK4829 register writes for receive on 145.5 MHz, the RF path pins, that the
+SPI flash only gets read commands and the Upgrade Mode handshake. For a
+transmit build it holds PTT and checks one 10 s transmission at PA drive 0.
+CI runs it for both builds on every push:
 
 ```sh
 python3 -m pip install unicorn

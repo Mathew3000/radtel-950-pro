@@ -103,9 +103,21 @@ static void draw_field(uint16_t y, const char *label, const char *value)
     lcd_draw_string(x, y, value, LCD_WHITE, LCD_BLACK);
 }
 
+/* Redraws only when something changed: the loop calls this every 20 ms. */
 static void draw_inputs(const input_raw_t *in, int32_t enc_count)
 {
+    static input_raw_t last;
+    static int32_t last_enc;
+    static bool drawn;
     char buf[12];
+
+    if (drawn && in->key == last.key && in->ptt == last.ptt && in->aux == last.aux &&
+        in->enc_ab == last.enc_ab && enc_count == last_enc) {
+        return;
+    }
+    drawn = true;
+    last = *in;
+    last_enc = enc_count;
 
     draw_field(136, "key ", in->key == INPUT_KEY_NONE ? "  --" : fmt_int(buf, in->key, 4));
     draw_field(156, "ptt ", in->ptt ? "DOWN" : "  up");
@@ -167,6 +179,7 @@ static void bk_check(bk_chip_t chip, uint16_t y)
 #define RX_MAX_FREQ     52000000U  /* 520 MHz */
 #define SQ_OPEN_DBM     (-110)
 #define SQ_CLOSE_DBM    (-115)
+#define TX_TIMEOUT_MS   10000U
 
 static void draw_freq(uint32_t freq)
 {
@@ -249,6 +262,11 @@ int main(void)
     uint32_t freq = RX_DEFAULT_FREQ;
     bool sq_open = false;
     bool retune = true;
+#ifdef RT950_ENABLE_TX
+    bool transmitting = false;
+    bool ptt_release_needed = false;
+    uint32_t tx_since = 0;
+#endif
     uint8_t last_key = INPUT_KEY_NONE;
     char buf[12];
 
@@ -295,6 +313,30 @@ int main(void)
             next_input += 20;
             input_read(&in);
             draw_inputs(&in, enc_count);
+
+#ifdef RT950_ENABLE_TX
+            /* PTT: transmit while held, at most TX_TIMEOUT_MS, then release PTT to go again */
+            if (!in.ptt) {
+                ptt_release_needed = false;
+            }
+            if (in.ptt && !transmitting && !retune && !ptt_release_needed) {
+                if (rf_tx_start(freq)) {
+                    transmitting = true;
+                    tx_since = clock_millis();
+                    sq_open = false;
+                    lcd_draw_string(8, 302, "TX               ", LCD_RED, LCD_BLACK);
+                    log_printf("tx on %lu0 Hz\n", (unsigned long)freq);
+                }
+            } else if (transmitting && (!in.ptt || clock_millis() - tx_since >= TX_TIMEOUT_MS)) {
+                rf_tx_stop(freq);
+                transmitting = false;
+                ptt_release_needed = true;
+                log_printf("tx off after %lu ms\n", (unsigned long)(clock_millis() - tx_since));
+            }
+            if (transmitting) {
+                continue;
+            }
+#endif
 
             if (retune) {
                 retune = false;

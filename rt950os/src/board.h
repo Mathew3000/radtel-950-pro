@@ -75,6 +75,14 @@
 #define BOARD_AUDIO_EN3_PORT   GPIOC
 #define BOARD_AUDIO_EN3_PIN    GPIO_PINS_9
 
+/*
+ * PA drive (APC): DAC channel 2 on PA5, 8-bit value. The stock TX start writes
+ * a calibrated byte here (0x0801ea14 picks it, 0x0800dfd0 writes DAC D2DTH8R)
+ * and writes 0 when TX ends (0x0801d984). 0 means no PA drive.
+ */
+#define BOARD_APC_PORT         GPIOA
+#define BOARD_APC_PIN          GPIO_PINS_5
+
 /* BK4829 3-wire bus: see src/drivers/bk4829.c */
 
 #endif

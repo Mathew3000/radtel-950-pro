@@ -31,4 +31,15 @@ void rf_rx_start(uint32_t freq);
 /* Unmute the receiver and turn the audio output on, or the reverse. */
 void rf_audio(bool on);
 
+#ifdef RT950_ENABLE_TX
+/*
+ * Transmit on freq, or return false if freq is outside the amateur bands
+ * rt950os allows (144-146 MHz, 430-440 MHz). See rf.c for the power level.
+ */
+bool rf_tx_start(uint32_t freq);
+
+/* Stop transmitting and go back to receive on rx_freq. */
+void rf_tx_stop(uint32_t rx_freq);
+#endif
+
 #endif

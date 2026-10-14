@@ -6,7 +6,7 @@ vector with just enough peripheral behaviour to get through start-up:
 - CRM: oscillator and PLL "stable" flags read as set, and the clock switch
   status follows the requested source.
 - SysTick: Unicorn does not deliver exceptions, so each read of the tick
-  counter advances it by 1 ms. QEMU has no DWT, so clock_delay_us returns
+  counter advances it by 1 ms (5 ms for a TX build). QEMU has no DWT, so clock_delay_us returns
   at once.
 - BK4829: a model of the two chips on the GPIOE 3-wire bus stores what is
   written and answers reads on PE11. Unicorn runs the memory hooks of
@@ -24,7 +24,10 @@ It then checks:
   and receive values, and the read-back logged over RTT matches;
 - the radio ends up receiving 145.5 MHz on the PE8 chip with the other chip
   asleep and the VHF RX path (PB0) selected;
-- the TX path selects (PB1, PE7, PE14) were never set;
+- the TX path selects (PB1, PE7, PE14) were never set and the PA drive DAC
+  stayed at 0. For an image built with -DRT950_TX=ON, PTT reads as held, so
+  instead it checks one transmission on 145.5 MHz through PB1 at PA drive 0
+  that ends after the 10 s timeout and is not restarted;
 - the SPI flash only ever sees read commands, and the calibration block is
   read at boot;
 - "PROGRAMBT9000U" then "UPDATE" on the cable UART get two 0x06 ACKs and a
@@ -33,6 +36,7 @@ It then checks:
 Usage: emu_smoke.py build/rt950os.elf build/rt950os.bin
 """
 
+import re
 import struct
 import subprocess
 import sys
@@ -44,6 +48,7 @@ FLASH, RAM, PERIPH, PPB = 0x08000000, 0x20000000, 0x40000000, 0xE0000000
 APP_BASE = 0x08002C00
 CRM = 0x40021000
 UART4 = 0x40004C00
+DAC_D2DTH8R = 0x4000741C
 SPI2 = 0x40003800
 FLASH_CS = 1 << 12  # PB12
 GPIOB = 0x40010C00
@@ -134,6 +139,9 @@ def main():
     uc.mem_write(syms["clock_delay_us"] & ~1, b"\x70\x47")
 
     tick = syms["tick_ms"]
+    tx_build = "rf_tx_start" in syms
+    # The TX build has to get through a 10 s PTT timeout: let time run faster
+    tick_step = 5 if tx_build else 1
     gpiod_odt = [0xFFFF]
     lcd = []
     bk = BkBus()
@@ -149,7 +157,7 @@ def main():
             uc.mem_write(CRM + 4, struct.pack("<I", (v & ~0xC) | ((v & 3) << 2)))
         elif addr == tick:
             v = struct.unpack("<I", uc.mem_read(tick, 4))[0]
-            uc.mem_write(tick, struct.pack("<I", v + 1))
+            uc.mem_write(tick, struct.pack("<I", v + tick_step))
         elif addr == GPIOE + GPIO_IDT:
             uc.mem_write(GPIOE + GPIO_IDT, struct.pack("<I", BK_SDA if bk.idt_bit else 0))
 
@@ -193,6 +201,9 @@ def main():
     uc.hook_add(UC_HOOK_MEM_WRITE, on_write, begin=GPIOB, end=GPIOB + 0x20)
     uc.hook_add(UC_HOOK_MEM_WRITE, on_write, begin=GPIOC, end=GPIOC + 0x20)
 
+    apc = []  # values written to the PA drive DAC
+    uc.hook_add(UC_HOOK_MEM_WRITE, lambda uc, a, addr, size, value, d: apc.append(value & 0xFF),
+                begin=DAC_D2DTH8R, end=DAC_D2DTH8R + 3)
     uart_tx = []
     flash_cmds = []  # SPI flash transactions: bytes sent while PB12 is low
 
@@ -209,7 +220,7 @@ def main():
     sp, reset = struct.unpack_from("<II", image, 0)
     uc.reg_write(UC_ARM_REG_SP, sp)
     try:
-        uc.emu_start(reset | 1, 0, count=30_000_000)
+        uc.emu_start(reset | 1, 0, count=60_000_000 if tx_build else 30_000_000)
     except UcError as exc:
         pc = uc.reg_read(UC_ARM_REG_PC)
         raise SystemExit(f"emulation stopped at pc=0x{pc:08x}: {exc}")
@@ -247,7 +258,8 @@ def main():
             failures.append(f"BK{chip}: init does not start with the soft reset")
         if any((reg, val) not in writes for reg, val in init_vals.items()) or (0x47, 0x6042) not in writes:
             failures.append(f"BK{chip}: OEM init values missing")
-        bad30 = sorted({val for reg, val in writes if reg == 0x30} - REG30_ALLOWED)
+        allowed = REG30_ALLOWED | ({0xC1FE} if tx_build and chip == 0 else set())
+        bad30 = sorted({val for reg, val in writes if reg == 0x30} - allowed)
         if bad30:
             failures.append(f"BK{chip}: register 0x30 written with non-RX values {[hex(v) for v in bad30]}")
         if f"bk{chip} reg 37 = 9d1f" not in log:
@@ -263,7 +275,25 @@ def main():
         failures.append("BK1 not asleep while BK0 receives")
     if not odt[RX_VHF[0]] & RX_VHF[1]:
         failures.append("VHF RX path select (PB0) not set")
-    for port, mask in TX_PINS.items():
+    if any(apc):
+        failures.append(f"PA drive DAC set above 0: {sorted(set(apc))}")
+    tx_seen = dict(TX_PINS)
+    if tx_build:
+        # The emulator reads PTT (PE3) as held: expect one 10 s transmission on
+        # 145.5 MHz through the VHF path, at PA drive 0, then back to receive.
+        print("TX build: checking one PTT transmission")
+        tx_seen = {GPIOB: 0, GPIOE: TX_PINS[GPIOE]}
+        if not ever_set[GPIOB] & TX_PINS[GPIOB]:
+            failures.append("TX build: VHF TX path select (PB1) never set")
+        if odt[GPIOB] & TX_PINS[GPIOB]:
+            failures.append("TX build: VHF TX path select still set after TX")
+        if (0x30, 0xC1FE) not in bk.writes[0] or (0x36, 0x0057) not in bk.writes[0]:
+            failures.append("TX build: BK0 never entered TX with the low-power PA bias")
+        if "tx on 145500000 Hz" not in log or not re.search(r"tx off after 100[0-9][0-9] ms", log):
+            failures.append("TX build: TX start/timeout missing from the RTT log")
+        if log.count("tx on") != 1:
+            failures.append("TX build: transmitted again without releasing PTT")
+    for port, mask in tx_seen.items():
         if ever_set[port] & mask:
             failures.append(f"TX path select set on port {port:#x}: {ever_set[port] & mask:#06x}")
     if "rx 145500000 Hz on bk0" not in log:

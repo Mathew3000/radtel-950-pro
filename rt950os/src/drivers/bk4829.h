@@ -31,6 +31,15 @@ void bk4829_wake(bk_chip_t chip);
  */
 void bk4829_rx_on(bk_chip_t chip, uint32_t freq);
 
+#ifdef RT950_ENABLE_TX
+/*
+ * Tune to freq and enter transmit (OEM TX start 0x0801f1c0, no tones, no
+ * scrambler). pa_bias goes to register 0x36. The PA itself is driven by the
+ * APC DAC and the TX path select, which rf.c handles.
+ */
+void bk4829_tx_on(bk_chip_t chip, uint32_t freq, uint16_t pa_bias);
+#endif
+
 /* Demodulated FM audio to the AF output, or muted. */
 void bk4829_af(bk_chip_t chip, bool on);
 
