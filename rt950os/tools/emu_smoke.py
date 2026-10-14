@@ -24,7 +24,9 @@ It then checks:
   and receive values, and the read-back logged over RTT matches;
 - the radio ends up receiving 145.5 MHz on the PE8 chip with the other chip
   asleep and the VHF RX path (PB0) selected;
-- the TX path selects (PB1, PE7, PE14) were never set.
+- the TX path selects (PB1, PE7, PE14) were never set;
+- "PROGRAMBT9000U" then "UPDATE" on the cable UART get two 0x06 ACKs and a
+  reset into the bootloader, as with the stock firmware.
 
 Usage: emu_smoke.py build/rt950os.elf build/rt950os.bin
 """
@@ -39,6 +41,7 @@ from unicorn.arm_const import UC_ARM_REG_SP, UC_ARM_REG_PC, UC_CPU_ARM_CORTEX_M4
 FLASH, RAM, PERIPH, PPB = 0x08000000, 0x20000000, 0x40000000, 0xE0000000
 APP_BASE = 0x08002C00
 CRM = 0x40021000
+UART4 = 0x40004C00
 GPIOB = 0x40010C00
 GPIOC = 0x40011000
 GPIOD = 0x40011400
@@ -184,6 +187,11 @@ def main():
     uc.hook_add(UC_HOOK_MEM_WRITE, on_write, begin=GPIOB, end=GPIOB + 0x20)
     uc.hook_add(UC_HOOK_MEM_WRITE, on_write, begin=GPIOC, end=GPIOC + 0x20)
 
+    uart_tx = []
+    uc.mem_write(UART4, struct.pack("<I", 0xC0))  # STS: transmit buffer empty, done
+    uc.hook_add(UC_HOOK_MEM_WRITE, lambda uc, a, addr, size, value, d: uart_tx.append(value & 0xFF),
+                begin=UART4 + 4, end=UART4 + 7)
+
     sp, reset = struct.unpack_from("<II", image, 0)
     uc.reg_write(UC_ARM_REG_SP, sp)
     try:
@@ -246,6 +254,25 @@ def main():
             failures.append(f"TX path select set on port {port:#x}: {ever_set[port] & mask:#06x}")
     if "rx 145500000 Hz on bk0" not in log:
         failures.append("RX start missing from the RTT log")
+
+    # Updater "Upgrade Mode" handshake on the cable UART. Unicorn delivers no
+    # interrupts, so the bytes go straight into the driver's ring buffer.
+    rx = b"PROGRAMBT9000U" + b"UPDATE"
+    uc.mem_write(syms["rx_buf"], rx)
+    uc.mem_write(syms["rx_head"], struct.pack("<I", len(rx)))
+    uc.mem_write(syms["rx_tail"], struct.pack("<I", 0))
+    try:
+        uc.emu_start(uc.reg_read(UC_ARM_REG_PC) | 1, 0, count=3_000_000)
+    except UcError as exc:
+        pc = uc.reg_read(UC_ARM_REG_PC)
+        raise SystemExit(f"emulation stopped at pc=0x{pc:08x}: {exc}")
+    wr = struct.unpack("<I", uc.mem_read(cb + 24 + 12, 4))[0]
+    log2 = bytes(uc.mem_read(buf, wr)).decode(errors="replace")
+    print("updater: sent", [hex(b) for b in uart_tx])
+    if uart_tx != [0x06, 0x06]:
+        failures.append(f"updater handshake: expected two ACKs, got {uart_tx}")
+    if "update requested, resetting" not in log2:
+        failures.append("updater handshake did not lead to a reset")
 
     if failures:
         for f in failures:

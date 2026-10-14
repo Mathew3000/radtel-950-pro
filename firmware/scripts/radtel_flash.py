@@ -20,10 +20,16 @@ Example usage:
     python radtel_flash.py --port /dev/ttyACM0 firmware.bin
     python radtel_flash.py --port COM5 firmware.btf
 
-You need pyserial installed (pip install pyserial) and the radio connected in
-USB update mode. The script reproduces the captured handshake:
+You need pyserial installed (pip install pyserial) and the radio on the
+programming cable. Two ways in, as in the OEM updater (BootHelper.cs):
+- Upgrade Mode (default): the radio is on and running its firmware (stock or
+  rt950os). Steps 1-3 ask the firmware to restart into the bootloader.
+- Flashing Mode (--skip-handshake): power the radio on while holding side
+  keys 3 and 4, so the bootloader itself waits. Starts at step 4.
+
+The script reproduces the captured handshake:
     1. ASCII "PROGRAMBT9000U" (expects ACK 0x06)
-    2. ASCII "UPDATE" (expects ACK 0x06)
+    2. ASCII "UPDATE" (expects ACK 0x06), then 80 ms for the restart
     3. CMD 0x42 (enter binary mode)
     4. CMD 0x0A with payload "BOOTLOADER_V3"
     5. CMD 0x02 with static 32-byte metadata (model + signature)
@@ -271,7 +277,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     parser.add_argument("--port", required=True, help="Serial port (e.g. COM5, /dev/ttyACM0)")
     parser.add_argument("--baud", type=int, default=115200, help="UART baud rate (default: 115200)")
     parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE, help="Payload bytes per CMD=0x03 packet")
-    parser.add_argument("--skip-handshake", action="store_true", help="Skip the PROGRAM/UPDATE ASCII handshake")
+    parser.add_argument("--skip-handshake", action="store_true", help="Flashing Mode: the radio was powered on holding side keys 3 and 4, so skip the handshake and CMD 0x42")
     parser.add_argument("--raw", action="store_true", help="Send the input file unchanged, whatever its extension")
     parser.add_argument("--timeout", type=float, default=2.0, help="Serial read/write timeout in seconds")
     parser.add_argument("--resume", type=int, default=0, help="Start chunk index (for manual resume)")
@@ -303,11 +309,12 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             print("[2/6] Sending UPDATE handshake…")
             flasher.send_ascii(ASCII_UPDATE, "UPDATE handshake")
             print("      Device ACKed")
+            # The firmware resets into the bootloader now; the OEM updater waits 80 ms
+            time.sleep(0.08)
+            print("[3/6] Entering binary mode (CMD=0x42)…")
+            flasher.send_packet(CMD_ENTER_BINARY, 0x0000, b"")
         else:
-            print("Skipping ASCII handshake as requested")
-
-        print("[3/6] Entering binary mode (CMD=0x42)…")
-        flasher.send_packet(CMD_ENTER_BINARY, 0x0000, b"")
+            print("Flashing Mode: skipping the handshake, talking to the bootloader directly")
 
         print("[4/6] Sending bootloader info (CMD=0x0A)…")
         flasher.send_packet(CMD_BOOT_VERSION, 0x0000, BOOT_VERSION_PAYLOAD)

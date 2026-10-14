@@ -29,9 +29,15 @@
 #define BOARD_PTT_PIN          GPIO_PINS_3
 
 /*
- * Inputs the OEM firmware polls whose role is still unknown: PE0 (debounced
- * for 50 ms at 0x0800cdb8) and PC15 (0x08010e60). Shown raw for probing.
+ * Power: PE0 reads high when the power switch is turned off, and clearing
+ * PA11 then cuts the supply (OEM power-off at 0x0800cdb8, see src/app/power.c).
  */
+#define BOARD_POWER_SW_PORT    GPIOE
+#define BOARD_POWER_SW_PIN     GPIO_PINS_0
+#define BOARD_POWER_HOLD_PORT  GPIOA
+#define BOARD_POWER_HOLD_PIN   GPIO_PINS_11
+
+/* Inputs shown raw for probing: PE0 (power switch) and PC15 (role unknown, 0x08010e60) */
 #define BOARD_AUX0_PORT        GPIOE
 #define BOARD_AUX0_PIN         GPIO_PINS_0
 #define BOARD_AUX1_PORT        GPIOC

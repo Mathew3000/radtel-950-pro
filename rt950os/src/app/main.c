@@ -15,6 +15,9 @@
  * Then the radio receives FM on RX_DEFAULT_FREQ. The encoder tunes in
  * 12.5 kHz steps, the screen shows the RSSI, and the audio opens while the
  * RSSI is above SQ_OPEN_DBM. Nothing here can transmit.
+ *
+ * The OEM updater's "Upgrade Mode" works from this image too (update.c), and
+ * turning the power switch off switches the radio off (power.c).
  */
 #include "clock.h"
 #include "backlight.h"
@@ -23,6 +26,8 @@
 #include "log.h"
 #include "bk4829.h"
 #include "rf.h"
+#include "update.h"
+#include "power.h"
 
 /*
  * The OEM bootloader starts the application and may leave interrupts enabled.
@@ -224,9 +229,13 @@ int main(void)
     bk_check(BK_CHIP_1, 268);
 
     rf_init();
+    update_init();
 
     for (;;) {
         int32_t steps = input_encoder_poll();
+
+        update_poll();
+        power_poll();
 
         if (steps) {
             int64_t f = (int64_t)freq + (int64_t)steps * RX_STEP;

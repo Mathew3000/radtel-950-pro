@@ -31,6 +31,9 @@ the RSSI to be off by a few dB. Nothing in this image can transmit: the TX
 path selects are held low and BK4829 register 0x30 only gets the idle and
 receive values.
 
+Turning the power switch off switches the radio off, as with stock firmware
+(PE0 goes high, then PA11 is released; `src/app/power.c`).
+
 ## Build
 
 Needs `arm-none-eabi-gcc` (tested with 13.2), CMake 3.22 or newer, Ninja and
@@ -106,19 +109,28 @@ Make a full SWD backup first:
 - user system data (option bytes) `0x1FFFF800` to `0x1FFFF82F`
 - the external SPI NOR flash, which probably holds calibration and channels
 
-The USB update protocol (`BOOTLOADER_V3`) is served by the bootloader, which
-rt950os leaves alone. How the radio enters update mode is still open. The OEM
-app handles the `PROGRAMBT9000U` / `UPDATE` handshake, so it may be the app
-that hands over to the bootloader. If there is no power-on key combo, rt950os
-has to implement that hand-over before USB updates work again. Until then,
-the way back is SWD.
+The update protocol (`BOOTLOADER_V3`) is served by the bootloader, which
+rt950os leaves alone. The OEM updater (`RT-950_EnUPDATE`) has two ways in,
+both over the programming cable at 115200 baud:
+
+- **Flashing Mode:** power the radio on while holding side keys 3 and 4. The
+  bootloader then waits for the updater by itself, so this works whatever
+  application is installed, including a broken one.
+- **Upgrade Mode:** with the radio on, the updater sends `PROGRAMBT9000U` and
+  `UPDATE`, the application ACKs both with `0x06` and resets into the
+  bootloader. Stock firmware does this, and so does rt950os (`src/app/update.c`,
+  UART4 on PC10/PC11).
+
+Flashing Mode is the safety net. Neither mode has been tried with rt950os on
+a radio yet, so keep the SWD backup.
 
 ## Flashing
 
 Over SWD: write `rt950os.bin` at `0x08002C00`. Don't use a full chip erase,
 because that also erases the bootloader.
 
-Over USB with the OEM update mode:
+Over the programming cable, with the OEM updater or the script (Upgrade Mode;
+add `--skip-handshake` for Flashing Mode):
 
 ```sh
 python3 firmware/scripts/radtel_flash.py --port /dev/ttyACM0 rt950os/build/rt950os.btf
@@ -126,7 +138,9 @@ python3 firmware/scripts/radtel_flash.py --port /dev/ttyACM0 rt950os/build/rt950
 
 ## Back to stock
 
-Over USB, if update mode can be entered: send the official BTF unchanged.
+Over the programming cable: send the official BTF unchanged, with the OEM
+updater or the script. If Upgrade Mode does not answer, use Flashing Mode
+(side keys 3 and 4 at power on, then `--skip-handshake`).
 
 ```sh
 python3 firmware/scripts/radtel_flash.py --port /dev/ttyACM0 "firmware/reference firmware/RT_950Pro_V0.18_250919.BTF"
