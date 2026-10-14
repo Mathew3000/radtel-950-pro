@@ -5,7 +5,7 @@
  * followed by 16 bytes that happen to be code in the OEM image. We do not know
  * yet how many of the 32 bytes the radio compares, so all of them are copied
  * verbatim; here the last 16 are plain data and never executed. The linker
- * script places this block at 0x080003E0.
+ * script places this block at image offset 0x3E0 (0x08002FE0).
  */
 #include <stdint.h>
 

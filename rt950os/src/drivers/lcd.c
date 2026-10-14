@@ -2,9 +2,9 @@
  * TFT driver on the GPIOD 8080 bus.
  *
  * Pins and init sequence come from the OEM V0.18 firmware:
- * - LCD_WriteCommand (0x080271c0) and LCD_WriteData (0x08027220): CS on PD1,
+ * - LCD_WriteCommand (0x08029dc0) and LCD_WriteData (0x08029e20): CS on PD1,
  *   D/C on PD3 (low for commands), WR on PD0, data byte on PD8-PD15.
- * - The unnamed init routine at 0x0802735c: reset pulse on PD2, then the
+ * - The unnamed init routine at 0x08029f5c: reset pulse on PD2, then the
  *   command table below. The commands (B2 porch, BB VCOM, E0/E1 gamma,
  *   3A 0x05 for RGB565, 21 inversion on) match an ST7789.
  */

@@ -41,6 +41,20 @@ void clock_init(void)
     system_core_clock_update();
 
     SysTick_Config(system_core_clock / 1000U);
+
+    /* Cycle counter for microsecond delays */
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+}
+
+void clock_delay_us(uint32_t us)
+{
+    uint32_t start = DWT->CYCCNT;
+    uint32_t cycles = us * (system_core_clock / 1000000U);
+
+    while ((DWT->CYCCNT - start) < cycles) {
+    }
 }
 
 uint32_t clock_millis(void)

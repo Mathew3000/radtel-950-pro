@@ -7,12 +7,17 @@
  * are right, and the seconds counter proves the clock runs at the expected
  * speed. Below them, raw key codes, PTT levels and an encoder counter let us
  * map the keypad on the radio.
+ *
+ * Both BK4829s get the OEM register setup (receive path only, no TX), and a
+ * few registers are read back and shown. Matching values prove the 3-wire bus
+ * works in both directions.
  */
 #include "clock.h"
 #include "backlight.h"
 #include "lcd.h"
 #include "input.h"
 #include "log.h"
+#include "bk4829.h"
 
 /*
  * The OEM bootloader starts the application and may leave interrupts enabled.
@@ -100,6 +105,46 @@ static void draw_inputs(const input_raw_t *in, int32_t enc_count)
     draw_field(216, "A B ", buf);
 }
 
+static const uint8_t bk_check_regs[] = { 0x37, 0x7B, 0x1D, 0x3E };
+static const uint16_t bk_check_vals[] = { 0x9D1F, 0x73DC, 0xE555, 0x94C6 };
+
+static void hex16(char *out, uint16_t v)
+{
+    static const char digits[] = "0123456789abcdef";
+    for (int i = 3; i >= 0; i--) {
+        out[i] = digits[v & 0xF];
+        v >>= 4;
+    }
+}
+
+/* Read back the check registers of one chip, log them, and draw one status line. */
+static void bk_check(bk_chip_t chip, uint16_t y)
+{
+    char line[32] = "bk0 ok 0/4 37=";
+    unsigned ok = 0;
+    uint16_t first = 0;
+
+    line[2] = (char)('0' + chip);
+    for (unsigned i = 0; i < sizeof(bk_check_regs); i++) {
+        uint16_t v = bk4829_read(chip, bk_check_regs[i]);
+        log_printf("bk%u reg %02x = %04x (wrote %04x)\n", chip, bk_check_regs[i], v, bk_check_vals[i]);
+        if (v == bk_check_vals[i]) {
+            ok++;
+        }
+        if (i == 0) {
+            first = v;
+        }
+    }
+    line[7] = (char)('0' + ok);
+    hex16(&line[14], first);
+    line[18] = '\0';
+    if (ok == 0) {
+        line[4] = '?';
+        line[5] = '?';
+    }
+    lcd_draw_string(8, y, line, ok == sizeof(bk_check_regs) ? LCD_GREEN : LCD_RED, LCD_BLACK);
+}
+
 int main(void)
 {
     uint32_t next = 0;
@@ -118,6 +163,12 @@ int main(void)
     lcd_init();
     input_init();
     draw_test_screen();
+
+    bk4829_bus_init();
+    bk4829_init(BK_CHIP_0);
+    bk4829_init(BK_CHIP_1);
+    bk_check(BK_CHIP_0, 248);
+    bk_check(BK_CHIP_1, 268);
 
     for (;;) {
         enc_count += input_encoder_poll();

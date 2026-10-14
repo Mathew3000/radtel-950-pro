@@ -6,14 +6,21 @@ vector with just enough peripheral behaviour to get through start-up:
 - CRM: oscillator and PLL "stable" flags read as set, and the clock switch
   status follows the requested source.
 - SysTick: Unicorn does not deliver exceptions, so each read of the tick
-  counter advances it by 1 ms.
+  counter advances it by 1 ms. QEMU has no DWT, so clock_delay_us returns
+  at once.
+- BK4829: a model of the two chips on the GPIOE 3-wire bus stores what is
+  written and answers reads on PE11. Unicorn runs the memory hooks of
+  conditional stores in an IT block even when the condition fails, so the
+  driver changes each pin with one unconditional store.
 Everything else is plain memory.
 
 It then checks:
 - the RTT log carries the boot line with a 240 MHz system clock;
 - the bytes clocked out on the TFT bus (GPIOD, latched on WR rising) match
   the OEM init sequence;
-- a full-screen fill went out, so the test screen was drawn.
+- a full-screen fill went out, so the test screen was drawn;
+- both BK4829s received the OEM init, register 0x30 (TX control) was never
+  written, and the read-back logged over RTT matches what was written.
 
 Usage: emu_smoke.py build/rt950os.elf build/rt950os.bin
 """
@@ -29,7 +36,45 @@ FLASH, RAM, PERIPH, PPB = 0x08000000, 0x20000000, 0x40000000, 0xE0000000
 APP_BASE = 0x08002C00
 CRM = 0x40021000
 GPIOD = 0x40011400
-GPIO_SCR, GPIO_CLR = 0x10, 0x14
+GPIOE = 0x40011800
+GPIO_IDT, GPIO_SCR, GPIO_CLR = 0x08, 0x10, 0x14
+
+BK_SCK, BK_SDA = 1 << 10, 1 << 11
+BK_CS = {0: 1 << 8, 1: 1 << 15}
+
+
+class BkBus:
+    """Two BK4829s on the bit-banged bus: SCK PE10, SDA PE11, CS PE8 / PE15."""
+
+    def __init__(self):
+        self.odt = BK_CS[0] | BK_CS[1]
+        self.regs = {0: {}, 1: {}}
+        self.writes = {0: [], 1: []}
+        self.chip = None
+        self.idt_bit = 0
+
+    def update(self, new):
+        old, self.odt = self.odt, new
+        for chip, cs in BK_CS.items():
+            if old & cs and not new & cs:
+                self.chip, self.bits, self.reg, self.reading = chip, [], None, False
+            elif not old & cs and new & cs and self.chip == chip:
+                self.chip = None
+        if self.chip is None or not (not old & BK_SCK and new & BK_SCK):
+            return
+        if self.reading:
+            value = self.regs[self.chip].get(self.reg, 0)
+            self.idt_bit = (value >> (15 - self.index)) & 1
+            self.index += 1
+            return
+        self.bits.append(1 if new & BK_SDA else 0)
+        if len(self.bits) == 8:
+            addr = int("".join(map(str, self.bits)), 2)
+            self.reg, self.reading, self.index = addr & 0x7F, bool(addr & 0x80), 0
+        elif len(self.bits) == 24:
+            value = int("".join(map(str, self.bits[8:])), 2)
+            self.regs[self.chip][self.reg] = value
+            self.writes[self.chip].append((self.reg, value))
 
 # Expected TFT traffic up to display on: (is_data, byte)
 LCD_EXPECTED = [(0, 0x11)]
@@ -67,10 +112,14 @@ def main():
     uc.mem_map(PERIPH, 0x30000)
     uc.mem_map(PPB, 0x100000)
     uc.mem_write(APP_BASE, image)
+    # QEMU's M-profile model has no DWT, so the CYCCNT busy-wait cannot run.
+    # Patch clock_delay_us to return at once ("bx lr").
+    uc.mem_write(syms["clock_delay_us"] & ~1, b"\x70\x47")
 
     tick = syms["tick_ms"]
     gpiod_odt = [0xFFFF]
     lcd = []
+    bk = BkBus()
 
     def on_read(uc, access, addr, size, value, data):
         if addr == CRM:
@@ -82,8 +131,18 @@ def main():
         elif addr == tick:
             v = struct.unpack("<I", uc.mem_read(tick, 4))[0]
             uc.mem_write(tick, struct.pack("<I", v + 1))
+        elif addr == GPIOE + GPIO_IDT:
+            uc.mem_write(GPIOE + GPIO_IDT, struct.pack("<I", BK_SDA if bk.idt_bit else 0))
 
     def on_write(uc, access, addr, size, value, data):
+        if addr in (GPIOE + GPIO_SCR, GPIOE + GPIO_CLR):
+            old = bk.odt
+            if addr == GPIOE + GPIO_SCR:
+                new = (old | (value & 0xFFFF)) & ~((value >> 16) & 0xFFFF)
+            else:
+                new = old & ~(value & 0xFFFF)
+            bk.update(new)
+            return
         if addr not in (GPIOD + GPIO_SCR, GPIOD + GPIO_CLR):
             return
         old = gpiod_odt[0]
@@ -99,12 +158,14 @@ def main():
 
     uc.hook_add(UC_HOOK_MEM_READ, on_read, begin=CRM, end=CRM + 8)
     uc.hook_add(UC_HOOK_MEM_READ, on_read, begin=tick, end=tick + 3)
+    uc.hook_add(UC_HOOK_MEM_READ, on_read, begin=GPIOE + GPIO_IDT, end=GPIOE + GPIO_IDT + 3)
     uc.hook_add(UC_HOOK_MEM_WRITE, on_write, begin=GPIOD, end=GPIOD + 0x20)
+    uc.hook_add(UC_HOOK_MEM_WRITE, on_write, begin=GPIOE, end=GPIOE + 0x20)
 
     sp, reset = struct.unpack_from("<II", image, 0)
     uc.reg_write(UC_ARM_REG_SP, sp)
     try:
-        uc.emu_start(reset | 1, 0, count=3_000_000)
+        uc.emu_start(reset | 1, 0, count=30_000_000)
     except UcError as exc:
         pc = uc.reg_read(UC_ARM_REG_PC)
         raise SystemExit(f"emulation stopped at pc=0x{pc:08x}: {exc}")
@@ -133,6 +194,18 @@ def main():
 
     if len(lcd) < 2 * 240 * 320:
         failures.append(f"only {len(lcd)} bytes on the TFT bus, the full-screen fill is missing")
+
+    for chip in (0, 1):
+        writes = bk.writes[chip]
+        print(f"BK{chip}: {len(writes)} register writes")
+        if writes[:2] != [(0x00, 0x8000), (0x00, 0x0000)]:
+            failures.append(f"BK{chip}: init does not start with the soft reset")
+        if bk.regs[chip].get(0x37) != 0x9D1F or bk.regs[chip].get(0x47) != 0x6042:
+            failures.append(f"BK{chip}: OEM init values missing")
+        if any(reg == 0x30 for reg, _ in writes):
+            failures.append(f"BK{chip}: register 0x30 (TX control) was written")
+        if f"bk{chip} reg 37 = 9d1f" not in log:
+            failures.append(f"BK{chip}: read-back of 0x37 not 9d1f in the log")
 
     if failures:
         for f in failures:

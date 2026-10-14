@@ -1,7 +1,7 @@
 /*
  * Keypad, encoder and PTT inputs.
  *
- * Follows the OEM Keypad_ScanMatrix (0x08013618) and its tables at
+ * Follows the OEM Keypad_ScanMatrix (0x08016218) and its tables at
  * 0x0803013a (column set masks), 0x08030144 (column clear masks) and
  * 0x0803014e (key codes), read with the application base 0x08002C00:
  * - PE5 low gives code 0 and PA12 low gives code 1 (direct keys).

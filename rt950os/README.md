@@ -16,6 +16,11 @@ for the key held down (see `src/drivers/input.h`), both PTT inputs, and an
 encoder counter with the raw A/B levels. Writing down the code for each
 labelled key gives us the keypad map.
 
+It also brings up both BK4829 transceivers with the OEM register setup (RX
+path only, audio muted, TX never enabled) and reads four registers back. Each
+chip gets a line like `bk0 ok 4/4 37=9d1f`: green when all four match, red
+otherwise (`??` when none do). The RTT log lists every value read. Green on both proves the 3-wire bus (`src/drivers/bk4829.c`).
+
 ## Build
 
 Needs `arm-none-eabi-gcc` (tested with 13.2), CMake 3.22 or newer, Ninja and
@@ -71,6 +76,12 @@ block that fwcrypt does not decrypt. In the V0.18 BTF it looks random, but the
 OEM reset vector (`0x080032a1`) points into it, so the bootloader must turn it
 into code in some way we have not worked out. rt950os keeps this block empty,
 and `tools/mkbtf.py` refuses an image that uses it.
+
+Addresses in rt950os comments are real flash addresses with this base. The
+older notes and Ghidra names (`FUN_0800xxxx`, `docs/Function_Names.csv`) were
+made with the image loaded at `0x08000000`: add `0x2C00` to a function name to
+get its real address. For example, `Keypad_ScanMatrix` (`FUN_08013618`) is at
+`0x08016218`.
 
 This also means `firmware/decrypted.bin` is not a complete OEM image: its
 `0x400` to `0x7FF` block is not what ends up in flash. Do not use it to
