@@ -1,0 +1,57 @@
+name: rt950os
+
+on:
+  push:
+    paths:
+      - "rt950os/**"
+      - "firmware/scripts/**"
+      - ".github/workflows/rt950os.yml"
+  pull_request:
+    paths:
+      - "rt950os/**"
+      - "firmware/scripts/**"
+      - ".github/workflows/rt950os.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi ninja-build
+
+      - name: Build
+        run: |
+          cmake -S rt950os -B rt950os/build -G Ninja
+          cmake --build rt950os/build
+          cmake -S rt950os -B rt950os/build-tx -G Ninja -DRT950_TX=ON
+          cmake --build rt950os/build-tx
+
+      - name: Boot the image in an emulator
+        run: |
+          python3 -m pip install unicorn==2.1.4
+          python3 rt950os/tools/emu_smoke.py rt950os/build/rt950os.elf rt950os/build/rt950os.bin
+          python3 rt950os/tools/emu_smoke.py rt950os/build-tx/rt950os.elf rt950os/build-tx/rt950os.bin
+
+      - name: Check BTF wrapping against the OEM image
+        working-directory: firmware/scripts
+        run: |
+          python3 - <<'PY'
+          import radtel_flash as r
+          from pathlib import Path
+          btf = Path("../reference firmware/RT_950Pro_V0.18_250919.BTF")
+          assert r.load_firmware(Path("../decrypted.bin")) == btf.read_bytes()
+          assert r.load_firmware(btf) == btf.read_bytes()
+          built = Path("../../rt950os/build")
+          assert r.load_firmware(built / "rt950os.bin") == (built / "rt950os.btf").read_bytes()
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rt950os
+          path: |
+            rt950os/build/rt950os.elf
+            rt950os/build/rt950os.bin
+            rt950os/build/rt950os.btf
+            rt950os/build/rt950os.map
